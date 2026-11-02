@@ -11,11 +11,22 @@ every Chrome profile and an Android app (`mobile/`, in progress). See `docs/ARCH
 3. **Authentication → Providers → Email**: enabled. (Turn off "Confirm email" while testing if you like.)
 4. **Project Settings → API**: copy the Project URL and the `anon` public key.
 
-### 2. Extension
-1. Open `extension/config.js` and paste the URL and anon key.
-2. Chrome → `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick the `extension` folder.
+### 2. Your keys
+Run `make env`, then put the Project URL and anon key in `.env` (gitignored).
+
+### 3. Extension
+1. `make ext` builds it into `dist/extension`.
+2. Chrome → `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick `dist/extension`.
 3. Pin DeskSync, create an account, done.
 4. In each other Chrome profile: load the same folder and sign in with the same account.
+
+After changing extension code, run `make ext` again and click reload on the extension's card.
+
+### 4. Android app
+Plug in a phone with USB debugging on, then run `make app`. See `mobile/README.md`.
+
+### Commands
+Run `make` to list them all: `env`, `ext`, `app`, `apk`, `devices`, `test`, `clean`.
 
 ## Use
 | Action | How |
