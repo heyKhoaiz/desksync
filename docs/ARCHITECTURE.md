@@ -15,7 +15,7 @@ every Chrome profile and an Android app.
 |---|---|---|
 | Backend | Supabase: email auth, Postgres, Row Level Security, Realtime | `supabase/schema.sql` ✅ |
 | Chrome extension | Manifest V3, plain JS, vendored supabase-js 2.x | `extension/` ✅ MVP |
-| Android app | Flutter + `supabase_flutter` | Next phase |
+| Android app | Flutter + `supabase_flutter` | `mobile/` login, notes, read later + share sheet; clipboard and vault next |
 
 ## 2. Data model (all tables: `user_id`, `created_at`, `updated_at`, `deleted_at`)
 
@@ -23,13 +23,14 @@ every Chrome profile and an Android app.
 |---|---|
 | `notes` | title, body (sanitized HTML), color, tags[], pinned |
 | `read_later` | url, title, favicon, note, is_read, source (`extension`/`android`) |
-| `clips` | content (≤ 20k chars), source_url, pinned |
+| `clips` | content (≤ 20k chars), source_url (hostname only), pinned |
 | `vault_meta` | salt, iterations, verifier_iv, verifier_ct (one row per user) |
 | `vault_items` | iv, ciphertext (whole item encrypted) |
 
 **Sync rules**
 - Supabase is the source of truth. Clients read, write and subscribe to Realtime changes.
 - Deletes are soft (`deleted_at`) so every device sees them; a cron job can purge rows older than 30 days.
+- Deleting a clip also blanks `content` and `source_url`, because clips can hold copied secrets in plaintext.
 - Conflicts: last write wins on `updated_at` (fine for single-user data).
 - RLS policy on every table: `user_id = auth.uid()`.
 
@@ -53,16 +54,16 @@ every Chrome profile and an Android app.
 - **Popup tabs:** Notes · Read later · Clipboard · Vault · Settings
 - **Notes:** rich text (bold, italic, underline, strike, list, highlight), 6 colors, tags, pin, search, `#tag` filter
 - **Read later:** save tab (button, `Alt+Shift+S`, right-click page/link), save all tabs, mark read, open
-- **Clipboard:** content script captures copy/cut on web pages (skips password fields and ignored sites), search, pin, copy back, save as note, manual "+ Paste"
+- **Clipboard:** opt-in; content script captures copy/cut only on sites the user approved (skips password fields), search, pin, copy back, save as note, manual "+ Paste"
 - **Vault:** create / unlock / lock, add & edit items, password generator, copy username/password, prefill from current tab
 - **Realtime:** popup refreshes when another profile or the phone changes data
 
-## 5. Android app (next phase — Flutter)
+## 5. Android app (`mobile/`, Flutter)
 
 | Screen / feature | Notes |
 |---|---|
 | Login | same Supabase account |
-| Notes | list + editor; render the same limited HTML (`flutter_html` / `flutter_quill` with HTML conversion) |
+| Notes | list + editor; renders the limited HTML as text spans; edits text only, keeping the stored body unless the text changes |
 | Read later | list; **Share → DeskSync** intent saves links from any app |
 | Clipboard | history synced from desktop; "save current clipboard" button (Android 10+ blocks background clipboard reading) |
 | Vault | biometric unlock (key wrapped in Android Keystore), **AutofillService** for other apps and browsers |
@@ -71,15 +72,15 @@ every Chrome profile and an Android app.
 ## 6. Roadmap
 
 1. ✅ Schema + extension MVP (all 4 features)
-2. Flutter app: login, notes, read later + share intent
+2. ✅ Flutter app: login, notes, read later + share intent (share sheet still to try on a device)
 3. Flutter: clipboard view, vault with biometric unlock
 4. Android AutofillService; extension autofill on login forms
 5. Offline cache in the extension; trash with restore
 6. Freemium: free = notes + read-later on 1 device class; Pro = sync everywhere, clipboard, vault
-7. Store launch: Chrome Web Store + Play Store (privacy policy, data-safety form, justify `<all_urls>`)
+7. Store launch: Chrome Web Store + Play Store (privacy policy, data-safety form, justify optional host access)
 
 ## 7. Store-review notes
 
-- `<all_urls>` + content script is needed for clipboard capture; explain it in the listing.
-  Alternative for an easier review: make clipboard capture opt-in with `optional_host_permissions`.
+- No host access at install. Clipboard capture asks per site through `optional_host_permissions`, and the
+  granted permissions are the allowlist. Supabase calls rely on CORS, not host permissions.
 - Declare that vault data is end-to-end encrypted, and that clipboard text is stored in the user's account.

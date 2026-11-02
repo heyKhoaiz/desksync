@@ -1,7 +1,7 @@
 # DeskSync
 
 Notes, read-later, clipboard history and an encrypted password vault — one account across
-every Chrome profile (Android app next). See `docs/ARCHITECTURE.md` for the full plan.
+every Chrome profile and an Android app (`mobile/`, in progress). See `docs/ARCHITECTURE.md` for the full plan.
 
 ## Setup (10 minutes)
 
@@ -23,7 +23,7 @@ every Chrome profile (Android app next). See `docs/ARCHITECTURE.md` for the full
 | Open | click the icon or `Alt+Shift+D` |
 | Save tab to read later | `Alt+Shift+S`, right-click → *Save page/link to Read Later*, or the popup button |
 | Save selected text as a note | right-click → *Save selection as a note* |
-| Clipboard history | copy text on any page; it appears in the Clipboard tab (turn off or ignore sites in ⚙) |
+| Clipboard history | off by default: in ⚙, turn on capture and click *Allow* on each site, or use *+ Paste* in the Clipboard tab |
 | Vault | Vault tab → set a master password (cannot be recovered) |
 
 Change shortcuts at `chrome://extensions/shortcuts`.
@@ -33,11 +33,12 @@ Change shortcuts at `chrome://extensions/shortcuts`.
 supabase/schema.sql       tables, RLS, realtime
 extension/manifest.json   MV3 manifest
 extension/background.js   context menus, shortcut, clipboard capture, vault auto-lock
-extension/content.js      captures copy/cut on pages (skips password fields)
+extension/content.js      captures copy/cut on approved sites (skips password fields)
 extension/popup.*         UI
 extension/lib/client.js   Supabase client + data helpers
 extension/lib/crypto.js   vault encryption (PBKDF2 + AES-GCM)
 extension/lib/supabase.js vendored supabase-js 2.118 (MV3 forbids remote code)
+mobile/                   Flutter Android app (see mobile/README.md)
 ```
 
 ## Before publishing
