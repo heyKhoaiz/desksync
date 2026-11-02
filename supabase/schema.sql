@@ -37,8 +37,8 @@ create table if not exists public.clips (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
   content     text not null check (char_length(content) <= 20000),
-  source_url  text,
-  pinned      boolean not null default false,
+  source_url  text,                               -- hostname only, never the full URL
+  pinned     boolean not null default false,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   deleted_at  timestamptz
@@ -97,4 +97,14 @@ begin
 end $$;
 
 -- ---------- Realtime (live sync between profiles / phone) ----------
-alter publication supabase_realtime add table public.notes, public.read_later, public.clips, public.vault_items;
+-- Checked per table because "add table" fails if it's already published, and this script must be re-runnable.
+do $$
+declare t text;
+begin
+  foreach t in array array['notes','read_later','clips','vault_items'] loop
+    if not exists (select 1 from pg_publication_tables
+                   where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

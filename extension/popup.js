@@ -1,7 +1,7 @@
 // DeskSync popup UI.
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
-const state = { notes: [], later: [], clips: [], vault: [], vaultKey: null, editing: null, editingVault: null };
+const state = { notes: [], later: [], clips: [], vault: [], vaultKey: null, editing: null, editingVault: null, tabOrigin: null };
 
 // ---------- Utils ----------
 function toast(msg) {
@@ -165,8 +165,9 @@ function renderLater() {
     let host = ''; try { host = new URL(r.url).hostname; } catch {}
     list.append(el('li', { class: r.is_read ? 'read' : '', onclick: safe(async () => {
         if (!/^https?:/i.test(r.url)) return toast('Blocked unsafe link');
+        // Opening a tab closes the popup, so mark it read first. A failed update shouldn't block reading.
+        if (!r.is_read) await db.update('read_later', r.id, { is_read: true }).catch(console.error);
         chrome.tabs.create({ url: r.url });
-        if (!r.is_read) await db.update('read_later', r.id, { is_read: true });
       }) },
       r.favicon && /^https:/.test(r.favicon) ? el('img', { src: r.favicon, alt: '' }) : null,
       el('div', { class: 'main' }, el('div', { class: 't' }, r.title || r.url),
@@ -205,9 +206,9 @@ function renderClips() {
   const items = state.clips.filter((c) => !q || c.content.toLowerCase().includes(q))
     .sort((a, b) => (b.pinned - a.pinned) || (new Date(b.created_at) - new Date(a.created_at)));
   const list = $('#clips-list'); list.replaceChildren();
-  if (!items.length) return list.append(empty(q ? 'No matches' : 'Copy text on any web page and it shows up here'));
+  if (!items.length) return list.append(empty(q ? 'No matches' : 'Empty — use + Paste, or approve sites for capture in ⚙'));
   for (const c of items) {
-    let host = ''; try { host = c.source_url ? new URL(c.source_url).hostname : ''; } catch {}
+    const host = c.source_url || '';
     list.append(el('li', { title: 'Click to copy', onclick: safe(() => copy(c.content)) },
       el('div', { class: 'main' }, el('div', { class: 's' }, c.content),
         el('div', { class: 'small muted' }, `${c.pinned ? '📌 ' : ''}${host ? host + ' · ' : ''}${ago(c.created_at)}`)),
@@ -218,7 +219,7 @@ function renderClips() {
           await db.insert('notes', { title: c.content.slice(0, 40), body: el('div', {}, c.content).innerHTML });
           toast('Saved as note'); loadNotes(); }) }, '📝'),
         el('button', { title: 'Delete', onclick: safe(async (e) => { e.stopPropagation();
-          await db.remove('clips', c.id); loadClips(); }) }, '🗑'))));
+          await db.remove('clips', c.id, { content: '', source_url: null }); loadClips(); }) }, '🗑'))));
   }
 }
 $('#clips-search').addEventListener('input', renderClips);
@@ -269,7 +270,7 @@ async function unlock() {
 }
 $('#vault-unlock').addEventListener('click', safe(unlock));
 $('#vault-pass').addEventListener('keydown', (e) => e.key === 'Enter' && safe(unlock)());
-$('#vault-lock').addEventListener('click', safe(async () => { await vaultCrypto.lock(); state.vaultKey = null; state.vault = []; openVault(); }));
+$('#vault-lock').addEventListener('click', safe(async () => { await vaultCrypto.lock(); state.vaultKey = null; state.vault = []; closeVaultEditor(); openVault(); }));
 
 const loadVault = safe(async () => {
   const rows = await db.list('vault_items');
@@ -313,8 +314,14 @@ async function editVault(v) {
   $('#vi-delete').classList.toggle('hidden', !v);
   $('#vault-editor').classList.remove('hidden');
 }
+// Clears the fields too, so decrypted values don't stay in the DOM.
+function closeVaultEditor() {
+  state.editingVault = null;
+  for (const id of ['vi-title', 'vi-url', 'vi-user', 'vi-pass', 'vi-notes']) $('#' + id).value = '';
+  $('#vault-editor').classList.add('hidden');
+}
 $('#vault-new').addEventListener('click', () => editVault(null));
-$('#vi-cancel').addEventListener('click', () => $('#vault-editor').classList.add('hidden'));
+$('#vi-cancel').addEventListener('click', closeVaultEditor);
 $('#vi-show').addEventListener('click', () => { const p = $('#vi-pass'); p.type = p.type === 'password' ? 'text' : 'password'; });
 $('#vi-gen').addEventListener('click', () => { $('#vi-pass').value = vaultCrypto.generatePassword(); $('#vi-pass').type = 'text'; });
 
@@ -325,24 +332,53 @@ $('#vi-save').addEventListener('click', safe(async () => {
   const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(item));
   if (state.editingVault) await db.update('vault_items', state.editingVault.id, { iv, ciphertext });
   else await db.insert('vault_items', { iv, ciphertext });
-  $('#vault-editor').classList.add('hidden'); toast('Saved (encrypted)'); loadVault();
+  closeVaultEditor(); toast('Saved (encrypted)'); loadVault();
 }));
 $('#vi-delete').addEventListener('click', safe(async () => {
   if (!state.editingVault) return;
-  await db.remove('vault_items', state.editingVault.id); $('#vault-editor').classList.add('hidden'); toast('Deleted'); loadVault();
+  await db.remove('vault_items', state.editingVault.id); closeVaultEditor(); toast('Deleted'); loadVault();
 }));
 
 // ---------- Settings ----------
+// Approved sites are the extension's granted host permissions, e.g. *://*.github.com/*
+function originFor(hostname) {
+  const host = hostname.replace(/^www\./, '');
+  const single = !host.includes('.') || /^[\d.]+$/.test(host) || host.startsWith('[');
+  return single ? `*://${host}/*` : `*://*.${host}/*`;
+}
+const hostOfOrigin = (origin) => origin.replace(/^\*:\/\/(\*\.)?/, '').replace(/\/\*$/, '');
+
 async function loadSettings() {
   const { settings } = await chrome.storage.local.get('settings');
-  const s = { clipCapture: true, clipIgnoreSites: [], ...(settings || {}) };
-  $('#set-clip').checked = s.clipCapture;
-  $('#set-ignore').value = s.clipIgnoreSites.join('\n');
+  $('#set-clip').checked = settings?.clipCapture ?? false;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  state.tabOrigin = /^https?:/.test(tab?.url || '') ? originFor(new URL(tab.url).hostname) : null;
+  await renderSites();
 }
-$('#set-save').addEventListener('click', safe(async () => {
-  const clipIgnoreSites = $('#set-ignore').value.split('\n').map((h) => h.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean);
-  await chrome.storage.local.set({ settings: { clipCapture: $('#set-clip').checked, clipIgnoreSites } });
-  toast('Settings saved');
+
+async function renderSites() {
+  const { origins = [] } = await chrome.permissions.getAll();
+  const list = $('#set-sites'); list.replaceChildren();
+  if (!origins.length) list.append(empty('No approved sites yet'));
+  for (const origin of origins) {
+    list.append(el('li', {},
+      el('div', { class: 'main' }, el('div', { class: 't' }, hostOfOrigin(origin))),
+      el('div', { class: 'acts' },
+        el('button', { title: 'Stop capturing on this site', onclick: safe(async () => {
+          await chrome.permissions.remove({ origins: [origin] }); renderSites(); }) }, '🗑'))));
+  }
+  const btn = $('#set-allow');
+  btn.disabled = !state.tabOrigin || origins.includes(state.tabOrigin);
+  btn.textContent = state.tabOrigin ? `Allow ${hostOfOrigin(state.tabOrigin)}` : 'Allow this site';
+}
+
+$('#set-clip').addEventListener('change', safe(async (e) => {
+  await chrome.storage.local.set({ settings: { clipCapture: e.target.checked } });
+  toast(e.target.checked ? 'Capture on' : 'Capture off');
+}));
+// permissions.request needs the click's user gesture, so nothing may be awaited before it.
+$('#set-allow').addEventListener('click', safe(async () => {
+  if (await chrome.permissions.request({ origins: [state.tabOrigin] })) { toast('Site approved'); renderSites(); }
 }));
 
 boot();

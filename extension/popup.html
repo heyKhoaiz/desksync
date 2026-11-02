@@ -131,12 +131,11 @@
     <!-- Settings -->
     <div id="tab-settings" class="tab hidden">
       <p>Signed in as <b id="me"></b></p>
-      <label class="chk"><input id="set-clip" type="checkbox"> Save text I copy on web pages</label>
-      <label>Never capture copies on these sites (one per line):
-        <textarea id="set-ignore" placeholder="bank.com&#10;mail.google.com"></textarea>
-      </label>
+      <label class="chk"><input id="set-clip" type="checkbox"> Save text I copy on approved sites</label>
+      <p class="muted small">Copied text is stored unencrypted in your account, including anything a site's own copy button puts on the clipboard. Avoid approving password managers or banking sites.</p>
+      <ul id="set-sites" class="list"></ul>
       <div class="row">
-        <button id="set-save" class="primary">Save settings</button>
+        <button id="set-allow" class="primary">Allow this site</button>
         <button id="signout" class="danger right">Sign out</button>
       </div>
       <p class="muted small">Shortcuts: Alt+Shift+S saves the current tab · Alt+Shift+D opens DeskSync.</p>

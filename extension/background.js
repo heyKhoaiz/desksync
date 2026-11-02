@@ -1,7 +1,7 @@
 // Service worker: read-later saving (context menu + shortcut), clipboard capture, vault auto-lock.
 importScripts('lib/supabase.js', 'config.js', 'lib/client.js', 'lib/crypto.js');
 
-const DEFAULT_SETTINGS = { clipCapture: true, clipIgnoreSites: [] };
+const DEFAULT_SETTINGS = { clipCapture: false };
 
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
@@ -37,6 +37,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'save-link', title: 'Save link to Read Later', contexts: ['link'] });
   chrome.contextMenus.create({ id: 'save-note', title: 'Save selection as a note', contexts: ['selection'] });
   chrome.alarms.create('vault-autolock', { periodInMinutes: 1 });
+  syncCaptureScripts();
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -75,14 +76,41 @@ async function handleClip(msg, sender) {
   if (!s.clipCapture) return;
   const content = String(msg.content || '').slice(0, DESKSYNC_CONFIG.CLIP_MAX_LENGTH);
   if (!content || content === lastClip) return;
-  let host = '';
-  try { host = new URL(msg.url).hostname; } catch {}
-  if (s.clipIgnoreSites.some((h) => host === h || host.endsWith('.' + h))) return;
+  let url;
+  try { url = new URL(sender.url); } catch { return; }
+  // Tabs opened before a site was removed keep the script running, so re-check here.
+  if (!(await chrome.permissions.contains({ origins: [`${url.protocol}//${url.hostname}/*`] }))) return;
   if (!(await currentUser())) return;
   lastClip = content;
-  try { await db.insert('clips', { content, source_url: msg.url || null }); }
+  // Hostname only: full URLs can carry secrets such as reset tokens.
+  try { await db.insert('clips', { content, source_url: url.hostname }); }
   catch (e) { console.error('[DeskSync] clip', e); }
 }
+
+// The content script runs only on sites the user approved, and only while capture is on.
+// Granted host permissions are the allowlist.
+let captureSync = Promise.resolve();
+function syncCaptureScripts() {
+  captureSync = captureSync.then(async () => {
+    const { clipCapture } = await getSettings();
+    const { origins = [] } = await chrome.permissions.getAll();
+    await chrome.scripting.unregisterContentScripts();
+    if (!clipCapture || !origins.length) return;
+    await chrome.scripting.registerContentScripts([
+      { id: 'clip-capture', js: ['content.js'], matches: origins, runAt: 'document_idle', allFrames: false }
+    ]);
+    // Already-open tabs would otherwise need a reload; content.js ignores repeat injection.
+    for (const tab of await chrome.tabs.query({ url: origins })) {
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }).catch(() => {});
+    }
+  }).catch((e) => console.error('[DeskSync] capture sync', e));
+  return captureSync;
+}
+chrome.permissions.onAdded.addListener(syncCaptureScripts);
+chrome.permissions.onRemoved.addListener(syncCaptureScripts);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) syncCaptureScripts();
+});
 
 // ---------- Vault auto-lock ----------
 chrome.alarms.onAlarm.addListener(async (a) => {

@@ -49,8 +49,9 @@ const db = {
     if (error) throw error;
     return data;
   },
-  async remove(table, id) {
-    const { error } = await sb.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  // `erase` blanks columns that shouldn't outlive the delete; the row stays as a tombstone for other devices.
+  async remove(table, id, erase = {}) {
+    const { error } = await sb.from(table).update({ ...erase, deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) throw error;
   }
 };
