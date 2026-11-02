@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "DeskSync – Notes, Read Later, Clipboard & Vault",
+  "short_name": "DeskSync",
+  "version": "0.1.0",
+  "description": "Notes, read-later tabs, clipboard history and an encrypted password vault — synced across every Chrome profile and your phone.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DeskSync"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "tabs", "contextMenus", "alarms", "clipboardRead", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "save-tab": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Save current tab to Read Later"
+    },
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+D" }
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

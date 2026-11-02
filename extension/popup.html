@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DeskSync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- ---------- Auth ---------- -->
+  <section id="auth" class="screen hidden">
+    <h1>DeskSync</h1>
+    <p class="muted">One account for every Chrome profile and your phone.</p>
+    <form id="auth-form">
+      <input id="auth-email" type="email" placeholder="Email" required autocomplete="username">
+      <input id="auth-pass" type="password" placeholder="Password (min 8)" minlength="8" required autocomplete="current-password">
+      <div class="row">
+        <button type="submit" data-mode="signin" class="primary">Sign in</button>
+        <button type="submit" data-mode="signup">Create account</button>
+      </div>
+      <p id="auth-msg" class="msg"></p>
+    </form>
+  </section>
+
+  <!-- ---------- App ---------- -->
+  <section id="app" class="screen hidden">
+    <nav class="tabs">
+      <button data-tab="notes" class="active">Notes</button>
+      <button data-tab="later">Read later</button>
+      <button data-tab="clips">Clipboard</button>
+      <button data-tab="vault">Vault</button>
+      <button data-tab="settings" title="Settings">⚙</button>
+    </nav>
+
+    <!-- Notes -->
+    <div id="tab-notes" class="tab">
+      <div class="toolbar">
+        <input id="notes-search" type="search" placeholder="Search notes or #tag">
+        <button id="note-new" class="primary">+ Note</button>
+      </div>
+      <ul id="notes-list" class="list"></ul>
+
+      <div id="note-editor" class="editor hidden">
+        <input id="note-title" placeholder="Title">
+        <div class="fmt">
+          <button data-cmd="bold"><b>B</b></button>
+          <button data-cmd="italic"><i>I</i></button>
+          <button data-cmd="underline"><u>U</u></button>
+          <button data-cmd="strikeThrough"><s>S</s></button>
+          <button data-cmd="insertUnorderedList">• List</button>
+          <button data-cmd="hiliteColor" data-val="#fde047">Highlight</button>
+          <select id="note-color">
+            <option value="yellow">Yellow</option><option value="green">Green</option>
+            <option value="blue">Blue</option><option value="pink">Pink</option>
+            <option value="purple">Purple</option><option value="gray">Gray</option>
+          </select>
+        </div>
+        <div id="note-body" class="body" contenteditable="true"></div>
+        <input id="note-tags" placeholder="Tags, comma separated">
+        <div class="row">
+          <button id="note-save" class="primary">Save</button>
+          <button id="note-cancel">Close</button>
+          <button id="note-delete" class="danger right">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Read later -->
+    <div id="tab-later" class="tab hidden">
+      <div class="toolbar">
+        <button id="later-save" class="primary">Save this tab</button>
+        <button id="later-save-all">Save all tabs</button>
+        <label class="chk"><input id="later-show-read" type="checkbox"> Show read</label>
+      </div>
+      <ul id="later-list" class="list"></ul>
+    </div>
+
+    <!-- Clipboard -->
+    <div id="tab-clips" class="tab hidden">
+      <div class="toolbar">
+        <input id="clips-search" type="search" placeholder="Search clipboard history">
+        <button id="clips-paste" title="Save what's on your clipboard now">+ Paste</button>
+      </div>
+      <ul id="clips-list" class="list"></ul>
+    </div>
+
+    <!-- Vault -->
+    <div id="tab-vault" class="tab hidden">
+      <div id="vault-setup" class="hidden">
+        <h2>Set up your vault</h2>
+        <p class="muted">Pick a master password. It never leaves this device and <b>cannot be recovered</b> — if you forget it, the vault is lost.</p>
+        <input id="vault-new1" type="password" placeholder="Master password (min 10)" minlength="10">
+        <input id="vault-new2" type="password" placeholder="Repeat master password">
+        <button id="vault-create" class="primary">Create vault</button>
+        <p id="vault-setup-msg" class="msg"></p>
+      </div>
+
+      <div id="vault-locked" class="hidden">
+        <h2>Vault locked</h2>
+        <input id="vault-pass" type="password" placeholder="Master password">
+        <button id="vault-unlock" class="primary">Unlock</button>
+        <p id="vault-msg" class="msg"></p>
+      </div>
+
+      <div id="vault-open" class="hidden">
+        <div class="toolbar">
+          <input id="vault-search" type="search" placeholder="Search vault">
+          <button id="vault-new" class="primary">+ Item</button>
+          <button id="vault-lock" title="Lock now">🔒</button>
+        </div>
+        <ul id="vault-list" class="list"></ul>
+
+        <div id="vault-editor" class="editor hidden">
+          <input id="vi-title" placeholder="Name (e.g. GitHub)">
+          <input id="vi-url" placeholder="Website URL">
+          <input id="vi-user" placeholder="Username / email" autocomplete="off">
+          <div class="row">
+            <input id="vi-pass" type="password" placeholder="Password" autocomplete="new-password">
+            <button id="vi-show">👁</button>
+            <button id="vi-gen" title="Generate">⚄</button>
+          </div>
+          <textarea id="vi-notes" placeholder="Notes"></textarea>
+          <div class="row">
+            <button id="vi-save" class="primary">Save</button>
+            <button id="vi-cancel">Close</button>
+            <button id="vi-delete" class="danger right">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="tab-settings" class="tab hidden">
+      <p>Signed in as <b id="me"></b></p>
+      <label class="chk"><input id="set-clip" type="checkbox"> Save text I copy on web pages</label>
+      <label>Never capture copies on these sites (one per line):
+        <textarea id="set-ignore" placeholder="bank.com&#10;mail.google.com"></textarea>
+      </label>
+      <div class="row">
+        <button id="set-save" class="primary">Save settings</button>
+        <button id="signout" class="danger right">Sign out</button>
+      </div>
+      <p class="muted small">Shortcuts: Alt+Shift+S saves the current tab · Alt+Shift+D opens DeskSync.</p>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </section>
+
+  <script src="lib/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="lib/client.js"></script>
+  <script src="lib/crypto.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
