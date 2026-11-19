@@ -53,5 +53,27 @@ const db = {
   async remove(table, id, erase = {}) {
     const { error } = await sb.from(table).update({ ...erase, deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) throw error;
+  },
+
+  // ---- Trash: the tombstones `remove` leaves behind ----
+  async listDeleted(table, { limit = 200 } = {}) {
+    const { data, error } = await sb.from(table).select('*')
+      .not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(limit);
+    if (error) throw error;
+    return data;
+  },
+  async restore(table, id) {
+    const { error } = await sb.from(table).update({ deleted_at: null }).eq('id', id);
+    if (error) throw error;
+  },
+  // Hard delete. Unlike `remove` this leaves nothing for other devices to sync, so it is
+  // only ever reached from Trash, where the user asked for it a second time.
+  async purge(table, id) {
+    const { error } = await sb.from(table).delete().eq('id', id);
+    if (error) throw error;
+  },
+  async purgeAll(table) {
+    const { error } = await sb.from(table).delete().not('deleted_at', 'is', null);
+    if (error) throw error;
   }
 };

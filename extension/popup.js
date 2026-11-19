@@ -1,7 +1,7 @@
 // DeskSync popup UI.
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
-const state = { notes: [], later: [], clips: [], vault: [], vaultKey: null, editing: null, editingVault: null, tabOrigin: null };
+const state = { notes: [], later: [], clips: [], vault: [], trash: [], vaultKey: null, editing: null, editingVault: null, tabOrigin: null };
 
 // ---------- Utils ----------
 function toast(msg) {
@@ -426,6 +426,75 @@ $('#vi-save').addEventListener('click', safe(async () => {
 $('#vi-delete').addEventListener('click', safe(async () => {
   if (!state.editingVault) return;
   await db.remove('vault_items', state.editingVault.id); closeVaultEditor(); toast('Deleted'); loadVault();
+}));
+
+// ---------- Trash ----------
+// Clips are left out on purpose: `remove` blanks their text, so there is nothing to restore.
+const TRASH = {
+  notes: { icon: 'note', label: 'Note', reload: () => loadNotes() },
+  read_later: { icon: 'bookmark', label: 'Link', reload: () => loadLater() },
+  vault_items: { icon: 'key', label: 'Vault item', reload: () => state.vaultKey && loadVault() }
+};
+
+async function trashTitle(r) {
+  if (r._table === 'notes') return r.title || textOf(r.body).slice(0, 80) || 'Untitled';
+  if (r._table === 'read_later') return r.title || r.url;
+  // A deleted vault item only has a title while the vault is unlocked.
+  if (!state.vaultKey) return 'Vault item';
+  try { return JSON.parse(await vaultCrypto.decrypt(state.vaultKey, r.iv, r.ciphertext)).title || 'Vault item'; }
+  catch { return 'Vault item'; }
+}
+
+const loadTrash = safe(async () => {
+  const tables = Object.keys(TRASH);
+  const groups = await Promise.all(tables.map((t) => db.listDeleted(t)));
+  const rows = groups.flatMap((g, i) => g.map((r) => ({ ...r, _table: tables[i] })))
+    .sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
+  state.trash = await Promise.all(rows.map(async (r) => ({ ...r, _title: await trashTitle(r) })));
+  renderTrash();
+});
+
+function renderTrash() {
+  const list = $('#trash-list'); list.replaceChildren();
+  $('#trash-empty').disabled = !state.trash.length;
+  if (!state.trash.length) return list.append(empty('Trash is empty'));
+  for (const r of state.trash) {
+    const kind = TRASH[r._table];
+    list.append(el('li', { class: 'static' },
+      el('div', { class: 'tile' }, icon(kind.icon)),
+      el('div', { class: 'main' },
+        el('div', { class: 't' }, r._title),
+        el('div', { class: 's' }, `${kind.label} · deleted ${ago(r.deleted_at)}`)),
+      el('div', { class: 'acts' },
+        el('button', { title: 'Restore', 'aria-label': 'Restore', onclick: safe(async () => {
+          await db.restore(r._table, r.id); toast('Restored'); kind.reload(); loadTrash(); }) }, icon('undo')),
+        el('button', { class: 'del', title: 'Delete forever', 'aria-label': 'Delete forever', onclick: safe(async () => {
+          await db.purge(r._table, r.id); toast('Deleted forever'); loadTrash(); }) }, icon('trash')))));
+  }
+}
+
+function openTrash() { $('#trash').classList.remove('hidden'); resetEmptyTrash(); loadTrash(); }
+$('#set-trash').addEventListener('click', openTrash);
+$('#trash-back').addEventListener('click', () => $('#trash').classList.add('hidden'));
+
+// Emptying the trash can't be undone, so the button asks a second time instead of
+// opening a dialog (a modal dialog would freeze the popup).
+function resetEmptyTrash() {
+  const b = $('#trash-empty');
+  b.dataset.armed = '';
+  b.replaceChildren(icon('trash'), 'Empty trash');
+}
+$('#trash-empty').addEventListener('click', safe(async () => {
+  const b = $('#trash-empty');
+  if (!b.dataset.armed) {
+    b.dataset.armed = '1';
+    b.replaceChildren(icon('trash'), 'Delete everything in the trash?');
+    clearTimeout(b._t); b._t = setTimeout(resetEmptyTrash, 5000);
+    return;
+  }
+  clearTimeout(b._t); resetEmptyTrash();
+  await Promise.all(Object.keys(TRASH).map((t) => db.purgeAll(t)));
+  toast('Trash emptied'); loadTrash();
 }));
 
 // ---------- Settings ----------
