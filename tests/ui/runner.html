@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DeskSync popup UI tests</title>
+  <!-- The real stylesheet, so layout assertions mean something. -->
+  <link rel="stylesheet" href="../../extension/popup.css">
+  <style>
+    /* The report sits over the popup; the popup underneath stays interactive
+       for the tests and inspectable by eye when run in a real browser. */
+    #report { position: fixed; inset: auto 0 0 0; max-height: 55vh; overflow: auto; z-index: 99999;
+      background: #0f0f0f; color: #ddd; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+      padding: 10px 14px; border-top: 2px solid #333; }
+    #report .ok { color: #7ddc9a; }
+    #report .no { color: #ff8a80; }
+    #report .grp { color: #9ecbff; margin-top: 8px; display: block; }
+    #summary { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div id="report">loading…</div>
+
+  <script>
+    // Build the page from the real popup.html, then load the real scripts with
+    // the test doubles swapped in for the ones that need a network.
+    (async () => {
+      const report = document.getElementById('report');
+      const fail = (msg) => {
+        report.innerHTML = `<span class="no">HARNESS ERROR: ${msg}</span>`;
+        report.dataset.pass = '0'; report.dataset.fail = '1'; report.dataset.done = '1';
+      };
+      window.addEventListener('error', (e) => fail(e.message));
+
+      try {
+        // cache-busted: a test run must never read a stale copy of the markup
+        const html = await (await fetch('../../extension/popup.html?t=' + Date.now())).text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        // Scripts injected via innerHTML never run, so they are loaded below in order.
+        doc.body.querySelectorAll('script').forEach((s) => s.remove());
+        document.body.insertAdjacentHTML('afterbegin', doc.body.innerHTML);
+
+        const load = (src) => new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = src; s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
+          document.head.append(s);
+        });
+
+        // Order matters: popup.js expects db, sb, vaultCrypto, md and friends to
+        // already exist, exactly as it does inside the extension.
+        await load('fixtures.js');
+        await load('../../extension/lib/markdown.js');
+        await load('../../extension/popup.js');
+        await load('cases.js');
+      } catch (e) {
+        fail(e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

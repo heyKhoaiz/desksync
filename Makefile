@@ -40,13 +40,16 @@ apk: check-env ## Build a release APK
 devices: ## List connected phones
 	adb devices
 
-test: test-ext ## Run the extension tests, then the app's analysis and unit tests
+test: test-ext test-ui ## Run the extension tests, then the app's analysis and unit tests
 	cd mobile && flutter analyze && flutter test
 
 test-ext: ## Run the extension's offline-sync, markdown and autofill tests
 	@node tests/offline.test.js
 	@node tests/markdown.test.js
 	@./tests/fillform.test.sh
+
+test-ui: ## Run the popup UI tests in headless Chrome
+	@./tests/ui.sh
 
 clean: ## Delete build output
 	rm -rf dist

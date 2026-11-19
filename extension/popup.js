@@ -850,8 +850,10 @@ function drawEditor(mode) {
           onmousedown: (e) => { e.preventDefault(); applyTool(t.k); }
         }, t.txt)),
     el('span', { class: 'right' },
-      el('button', { class: 'tab', 'aria-pressed': String(mode === 'write'), onclick: () => drawEditor('write') }, 'Write'),
-      el('button', { class: 'tab', 'aria-pressed': String(mode === 'preview'), onclick: () => drawEditor('preview') }, 'Preview')));
+      el('button', { class: 'tab', 'data-mode': 'write', 'aria-pressed': String(mode === 'write'),
+        onclick: () => drawEditor('write') }, 'Write'),
+      el('button', { class: 'tab', 'data-mode': 'preview', 'aria-pressed': String(mode === 'preview'),
+        onclick: () => drawEditor('preview') }, 'Preview')));
 
   let body;
   if (mode === 'write') {
@@ -939,7 +941,9 @@ function applyTool(k) {
     const body = v.slice(ls, le).split('\n')
       .map((ln) => (ln.startsWith(t.line) ? ln.slice(t.line.length) : t.line + ln)).join('\n');
     a.value = v.slice(0, ls) + body + v.slice(le);
-    a.setSelectionRange(ls + body.length, ls + body.length);
+    // Keep the same lines selected so pressing the button again toggles them
+    // back, instead of collapsing to the end and catching only the last line.
+    a.setSelectionRange(ls, ls + body.length);
   }
   a.focus();
   state.draft.body = a.value;
