@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext zip app apk devices test clean check-env
+.PHONY: help env ext zip icons app apk devices test clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -26,6 +26,9 @@ zip: ext ## Package the built extension as dist/desksync-extension.zip
 	@rm -f dist/desksync-extension.zip
 	@cd dist/extension && zip -qr ../desksync-extension.zip .
 	@echo "Zip: $(CURDIR)/dist/desksync-extension.zip"
+
+icons: ## Regenerate the extension icons from tools/make_icons.py
+	@python3 tools/make_icons.py extension/icons
 
 app: check-env ## Run the Android app on the connected phone
 	cd mobile && flutter run --dart-define-from-file=../.env
