@@ -112,6 +112,22 @@ $('#auth-form').addEventListener('submit', safe(async (e) => {
   if (error) { $('#auth-msg').textContent = error.message; return; }
   if (mode === 'signup' && !data.session) { $('#auth-msg').textContent = 'Check your email to confirm, then sign in.'; return; }
   
+// ---------- The logo is "take me back" ----------
+// One button that undoes whatever state you wandered into: a type filter, tag
+// chips, a half-typed search, settings, the trash, an open editor. Every list
+// UI needs one of these and the brand mark is where people already look for it.
+const goHome = safe(async () => {
+  if (state.editing) await closeEditor();       // saves the draft on its way out
+  if (state.screen) setScreen(null);
+  $('#q').value = '';
+  state.filter = 'all';
+  state.active = 0;
+  draw();
+  $('#list').scrollTop = 0;
+  $('#q').focus();
+});
+$('#home').addEventListener('click', goHome);
+
 // ---------- Theme ----------
 // Three states, because "follow the OS" is the right default but not everyone
 // wants it: system -> light -> dark -> system. The icon shows the state you are
@@ -466,7 +482,19 @@ function hoverRow(i) { if (!state.editing && i !== state.active) setActive(i, fa
 function clickRow(i) {
   if (state.editing) closeEditor();
   setActive(i, false);
+  // An action row is a button, not something to inspect: clicking it runs it.
+  // Selecting it and making you click "Do it" in the other pane read as nothing
+  // happening at all, which is exactly how "New note" felt.
+  const item = state.rows[i];
+  if (item && item.kind === 'action') { runRow(item); return; }
   $('#q').focus();
+}
+
+// Shared by Enter and by clicking an action row.
+function runRow(item) {
+  if (item.action === 'vault') return drawVaultGate();
+  if (item.disabled) return toast(item.action === 'tab' ? "Can't save this page" : 'Not available here');
+  runAction(item.action);
 }
 
 function setActive(i, scroll) {
@@ -751,9 +779,12 @@ function focusEditor() {
 
 const closeEditor = safe(async () => {
   const item = state.editing;
-  state.editing = null;
   if (!item) return;
-  await flushDraft(true);
+  // Save before clearing state.editing, not after: anything typed inside the
+  // autosave debounce is only in state.draft, and the flush needs to know which
+  // note it belongs to. Clearing first lost the last few seconds of typing.
+  await flushDraft(true, item);
+  state.editing = null;
   draw();
   $('#q').focus();
 });
@@ -829,11 +860,10 @@ function queueSave() {
   queueSave._t = setTimeout(() => flushDraft(false), 700);
 }
 
-const flushDraft = safe(async (final) => {
+const flushDraft = safe(async (final, itemOverride) => {
   clearTimeout(queueSave._t);
-  const item = state.editing || flushDraft._last;
+  const item = itemOverride || state.editing;
   if (!item || !state.draft) return;
-  flushDraft._last = item;
 
   const { title, body, tags } = state.draft;
 
@@ -1386,7 +1416,7 @@ qEl.addEventListener('keydown', (e) => {
 function openActive(e) {
   const item = state.rows[state.active];
   if (!item) return;
-  if (item.kind === 'action') return item.action === 'vault' ? drawVaultGate() : runAction(item.action);
+  if (item.kind === 'action') return runRow(item);
   if (item.kind === 'note') return openEditor(item);
   if (item.kind === 'link') return safe(() => openLink(item))();
   if (item.kind === 'clip') return safe(() => copy(item.row.content))();
@@ -1398,6 +1428,22 @@ function openActive(e) {
   }
 }
 
+
+// ---------- The logo is "take me back" ----------
+// One button that undoes whatever state you wandered into: a type filter, tag
+// chips, a half-typed search, settings, the trash, an open editor. Every list
+// UI needs one of these and the brand mark is where people already look for it.
+const goHome = safe(async () => {
+  if (state.editing) await closeEditor();       // saves the draft on its way out
+  if (state.screen) setScreen(null);
+  $('#q').value = '';
+  state.filter = 'all';
+  state.active = 0;
+  draw();
+  $('#list').scrollTop = 0;
+  $('#q').focus();
+});
+$('#home').addEventListener('click', goHome);
 
 // ---------- Theme ----------
 // Three states, because "follow the OS" is the right default but not everyone

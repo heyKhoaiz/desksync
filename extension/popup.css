@@ -93,7 +93,11 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Rail: the four types, then trash and settings at the foot. */
 .rail { width: 44px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .rail .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--on-ink);
-  display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+  display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-bottom: 6px;
+  transition: opacity var(--fade); }
+/* .rail button:hover would otherwise repaint the mark as a plain round button */
+.rail .mark:hover, .rail .mark:focus-visible { background: var(--ink); color: var(--on-ink); opacity: .82; }
+.rail .mark:active { opacity: .7; }
 .rail button { position: relative; width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; color: var(--fg-2);
   transition: background var(--fade), color var(--fade); }
