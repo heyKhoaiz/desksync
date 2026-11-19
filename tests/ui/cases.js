@@ -166,8 +166,10 @@
     document.querySelector('.d-tags .add').click();
     let input = document.querySelector('.d-tags input');
     input.value = 'Personal Stuff';
+    // as typing does, so the picker re-reads what is in the field
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    await wait(80);
+    await wait(120);
     ok('a tag is lower-cased and hyphenated on the way in',
       window.__DATA.clips.find((c) => c.id === 'c3').tags.includes('personal-stuff'),
       window.__DATA.clips.find((c) => c.id === 'c3').tags);
@@ -184,8 +186,9 @@
     document.querySelector('.d-tags .add').click();
     input = document.querySelector('.d-tags input');
     input.value = 'secret-label';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    await wait(120);
+    await wait(160);
     const vaultRow = window.__DATA.vault_items.find((v) => v.id === 'v3');
     ok('a vault tag goes inside the encrypted payload',
       vaultRow._plain.tags.includes('secret-label'), vaultRow._plain.tags);
@@ -369,8 +372,117 @@
     tool('task');
     eq('an existing list converts to tasks', editorMarkdown(), '- [ ] one\n- [ ] two');
 
+    // Typing into an empty note leaves a bare text node with no block around it.
+    // Every block tool asks which block the caret is in, and got nothing back.
+    ed.innerHTML = '';
+    ed.focus();
+    document.execCommand('insertText', false, 'milk');
+    eq('typing into an empty note really does leave no block',
+      [...ed.childNodes].every((n) => n.nodeType === 3) ? 'bare text' : 'wrapped', 'bare text');
+    tool('task');
+    eq('Task converts that line instead of adding an empty box beside it',
+      editorMarkdown(), '- [ ] milk');
+
+    // Writing a checklist the way a person does: Enter, type, Enter, type.
+    for (const word of ['bread', 'eggs']) {
+      ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      document.execCommand('insertText', false, word);
+    }
+    eq('Enter then typing fills the next item', editorMarkdown(), '- [ ] milk\n- [ ] bread\n- [ ] eggs');
+    ok('the checkbox is not something you can type into',
+      ed.querySelector('.box').getAttribute('contenteditable') === 'false');
+
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    document.execCommand('insertText', false, 'after the list');
+    eq('an empty item ends the list and typing continues below',
+      editorMarkdown(), '- [ ] milk\n- [ ] bread\n- [ ] eggs\n\nafter the list');
+
+    ed.querySelectorAll('.box')[1].click();
+    eq('and any box can still be ticked',
+      editorMarkdown(), '- [ ] milk\n- [x] bread\n- [ ] eggs\n\nafter the list');
+
     document.getElementById('home').click();
     await wait(150);
+
+    // ================= TAG PICKER =================
+    // The suggestions used to be a native <datalist>, drawn by the browser in
+    // its own colours with no way to say which name would be created.
+    group('tag picker');
+    await reset();
+    rowFor('Launch checklist').click();
+    await wait(40);
+
+    document.querySelector('.d-tags .add').click();
+    await wait(30);
+    ok('it is drawn by the popup, not the browser', !!document.querySelector('.tag-pop'));
+    ok('and the input no longer defers to a datalist',
+      !document.querySelector('.d-tags input[list]') && !document.querySelector('datalist'));
+
+    let picker = document.querySelector('.d-tags input');
+    ok('it suggests tags already in use', $$('.tag-pop [data-tag-option]').length > 0,
+      $$('.tag-pop [data-tag-option]').map((b) => b.dataset.tagOption));
+    ok('and leaves out the ones this item already has',
+      !$$('.tag-pop [data-tag-option]').some((b) => b.dataset.tagOption === 'launch'),
+      $$('.tag-pop [data-tag-option]').map((b) => b.dataset.tagOption));
+
+    picker.value = 'sup';
+    picker.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(20);
+    ok('typing narrows the list',
+      $$('.tag-pop [data-tag-option]').every((b) => b.dataset.tagOption.includes('sup')),
+      $$('.tag-pop [data-tag-option]').map((b) => b.dataset.tagOption));
+
+    picker.value = 'brandnew';
+    picker.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(20);
+    ok('a name that does not exist is offered as new',
+      !!document.querySelector('.tag-pop .new'), document.querySelector('.tag-pop')?.textContent);
+
+    picker.value = 'supabase';
+    picker.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(20);
+    ok('an existing name is not offered as new as well',
+      !document.querySelector('.tag-pop .new'), document.querySelector('.tag-pop')?.textContent);
+
+    picker.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(150);
+    ok('Enter takes the highlighted suggestion',
+      window.__DATA.notes.find((n) => n.id === 'n1').tags.includes('supabase'),
+      window.__DATA.notes.find((n) => n.id === 'n1').tags);
+    ok('and the list closes', !document.querySelector('.tag-pop'));
+
+    document.querySelector('.d-tags .add').click();
+    await wait(30);
+    picker = document.querySelector('.d-tags input');
+    picker.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await wait(80);
+    ok('Escape closes it without adding anything', !document.querySelector('.tag-pop'));
+
+    // ================= A WIDER EDITOR =================
+    group('a wider editor');
+    await reset();
+    await openNoteEditor('Launch checklist');
+    ok('the list is beside the note to begin with', !document.getElementById('app').classList.contains('wide'));
+
+    document.getElementById('ed-wide').click();
+    await wait(80);
+    ok('the button gives the note the whole popup',
+      document.getElementById('app').classList.contains('wide'));
+    ok('the rail stays, so the types are still reachable',
+      document.querySelector('.rail').getBoundingClientRect().width > 0);
+    ok('the choice is remembered', window.__store.editorWide === true, window.__store.editorWide);
+
+    document.getElementById('ed-wide').click();
+    await wait(80);
+    ok('and it goes back', !document.getElementById('app').classList.contains('wide'));
+
+    document.getElementById('ed-wide').click();
+    await wait(80);
+    document.getElementById('home').click();
+    await wait(150);
+    ok('leaving the editor brings the list back',
+      !document.getElementById('app').classList.contains('wide'));
 
     // ================= NOTES: SAVING =================
     group('notes — saving');

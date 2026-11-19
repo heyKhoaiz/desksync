@@ -13,7 +13,7 @@ const state = {
   theme: 'system',
   notes: [], later: [], clips: [], vault: [], trash: [],
   vaultKey: null, vaultState: 'locked',     // 'setup' | 'locked' | 'open'
-  items: [], rows: [], active: 0, vEditing: null, vDraft: null,
+  items: [], rows: [], active: 0, vEditing: null, vDraft: null, editorWide: false,
   filter: 'all', screen: null, editing: null,
   tagColors: {},
   tabId: null, tabHost: null, tabOrigin: null
@@ -87,8 +87,9 @@ async function boot() {
   state.email = user.email;
   // Drops a previous account's cached rows and queued writes before showing anything.
   await cache.claim(user.id);
-  const { tagColors, theme } = await chrome.storage.local.get(['tagColors', 'theme']);
+  const { tagColors, theme, editorWide } = await chrome.storage.local.get(['tagColors', 'theme', 'editorWide']);
   state.tagColors = tagColors || {};
+  state.editorWide = !!editorWide;
   applyTheme(theme || 'system');
   await loadSettings();
   loadNotes(); loadLater(); loadClips();
@@ -146,6 +147,7 @@ async function writeRow(table, id, row) {
 const goHome = safe(async () => {
   if (state.editing) await closeEditor();       // saves the draft on its way out
   if (state.vEditing) closeVaultEditor();
+  applyEditorWidth(false);
   if (state.screen) setScreen(null);
   $('#q').value = '';
   state.filter = 'all';
@@ -804,33 +806,82 @@ function tagRow(item) {
       el('button', {
         class: 'x', 'aria-label': 'Remove tag ' + t,
         onclick: safe(async () => { await saveTags(item, item.tags.filter((x) => x !== t)); refreshAfterTags(item); })
-      }, '×')));
+      }, '\u00d7')));
   }
 
   const add = el('button', { class: 'add' }, '+ Tag');
-  add.addEventListener('click', () => {
-    const input = el('input', { list: 'tag-list', placeholder: 'tag name', 'aria-label': 'New tag' });
-    add.replaceWith(input);
-    input.focus();
-    let done = false;
-    const commit = safe(async () => {
-      if (done) return; done = true;
-      const v = normalizeTag(input.value);
-      if (v && !item.tags.includes(v)) await saveTags(item, [...item.tags, v]);
-      refreshAfterTags(item);
-    });
-    input.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      if (e.key === 'Escape') { e.preventDefault(); done = true; refreshAfterTags(item); }
-    });
-    input.addEventListener('blur', commit);
-  });
+  add.addEventListener('click', () => openTagPicker(item, box, add));
   box.append(add);
-
-  // Suggests names already in use, so the list doesn't grow a "work", "Work" and "wrk".
-  box.append(el('datalist', { id: 'tag-list' }, ...allTags().map((t) => el('option', { value: t }))));
   return box;
+}
+
+// Picking a tag.
+//
+// This used to be an <input list=...> with a <datalist>. The browser draws that
+// menu itself, in its own colours, ignoring everything around it — and it gives
+// no way to show which name is about to be created rather than reused. The list
+// is drawn here instead, so it matches the popup and can say so.
+function openTagPicker(item, box, add) {
+  const input = el('input', { placeholder: 'tag name', 'aria-label': 'New tag',
+    role: 'combobox', 'aria-expanded': 'true', 'aria-autocomplete': 'list' });
+  const pop = el('div', { class: 'tag-pop', role: 'listbox', 'aria-label': 'Matching tags' });
+  add.replaceWith(input);
+  box.append(pop);
+
+  let options = [];
+  let active = 0;
+  let done = false;
+
+  const close = () => { if (!done) { done = true; pop.remove(); refreshAfterTags(item); } };
+
+  const choose = safe(async (name) => {
+    if (done) return;
+    done = true;
+    pop.remove();
+    const v = normalizeTag(name);
+    if (v && !item.tags.includes(v)) await saveTags(item, [...item.tags, v]);
+    refreshAfterTags(item);
+  });
+
+  const render = () => {
+    const typed = normalizeTag(input.value);
+    const known = allTags().filter((t) => !item.tags.includes(t) && (!typed || t.includes(typed)));
+    options = known.map((t) => ({ name: t, isNew: false }));
+    // Only offered when it is not already a tag, so the list never shows the
+    // same name twice with two different meanings.
+    if (typed && !known.includes(typed)) options.push({ name: typed, isNew: true });
+
+    if (active >= options.length) active = Math.max(0, options.length - 1);
+    pop.replaceChildren(...options.map((o, i) => {
+      const colour = state.tagColors[o.name];
+      return el('button', {
+        role: 'option', 'aria-selected': String(i === active), 'data-tag-option': o.name,
+        onmousedown: (e) => { e.preventDefault(); choose(o.name); }
+      },
+        colour ? el('span', { class: 'tg-dot', style: `background:${colour}` })
+               : el('span', { class: 'hash' }, '#'),
+        o.name,
+        o.isNew ? el('span', { class: 'new' }, 'new') : null);
+    }));
+    pop.hidden = options.length === 0;
+  };
+
+  input.addEventListener('input', () => { active = 0; render(); });
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' && options.length) { e.preventDefault(); active = (active + 1) % options.length; render(); }
+    else if (e.key === 'ArrowUp' && options.length) { e.preventDefault(); active = (active - 1 + options.length) % options.length; render(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      choose(options[active]?.name ?? input.value);
+    } else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+  // A click on the list is handled by mousedown above, so a blur here means the
+  // user went somewhere else: take what they typed rather than losing it.
+  input.addEventListener('blur', () => { if (!done) choose(input.value); });
+
+  render();
+  input.focus();
 }
 
 // After a tag change the row in the list is stale too, so redraw both panes.
@@ -901,14 +952,24 @@ const closeEditor = safe(async () => {
   // note it belongs to. Clearing first lost the last few seconds of typing.
   await flushDraft(true, item);
   state.editing = null;
+  applyEditorWidth(false);
   draw();
   $('#q').focus();
 });
+
+
+// A note can be longer than a 310px list is useful, so the editor can take the
+// whole popup. Only while editing: the list comes back when you are done, and
+// the choice is remembered for the next note.
+function applyEditorWidth(on) {
+  $('#app').classList.toggle('wide', !!on);
+}
 
 function drawEditor() {
   const item = state.editing;
   const pane = $('#detail');
   pane.replaceChildren();
+  applyEditorWidth(state.editorWide);
 
   const title = el('input', {
     class: 't-in', id: 'ed-title', value: state.draft.title,
@@ -933,7 +994,24 @@ function drawEditor() {
             // formatted, and clicking a button would move focus first.
             onmousedown: (e) => { e.preventDefault(); applyTool(t.k); }
           }, t.txt))),
-    el('span', { class: 'right' }, el('span', { class: 'saved', id: 'ed-saved' }, 'Saved')));
+    el('span', { class: 'right' },
+      el('button', {
+        id: 'ed-wide', 'data-wide': String(!!state.editorWide),
+        title: state.editorWide ? 'Show the list again' : 'Give the note the whole popup',
+        'aria-label': state.editorWide ? 'Show the list again' : 'Give the note the whole popup',
+        'aria-pressed': String(!!state.editorWide),
+        onclick: safe(async () => {
+          state.editorWide = !state.editorWide;
+          applyEditorWidth(state.editorWide);
+          await chrome.storage.local.set({ editorWide: state.editorWide });
+          const btn = $('#ed-wide');
+          btn.setAttribute('aria-pressed', String(state.editorWide));
+          btn.querySelector('use').setAttribute('href', state.editorWide ? '#i-collapse' : '#i-expand');
+          btn.title = state.editorWide ? 'Show the list again' : 'Give the note the whole popup';
+          btn.setAttribute('aria-label', btn.title);
+          $('#ed-area')?.focus();
+        })
+      }, icon(state.editorWide ? 'collapse' : 'expand'))));
 
   const body = el('div', {
     class: 'ed-rich md', id: 'ed-area', contenteditable: 'true', spellcheck: 'true',
@@ -962,6 +1040,7 @@ function drawEditor() {
     el('div', { class: 'ed' }, bar, body),
     el('footer', { class: 'ed-foot' },
       el('button', { class: 'primary', onclick: closeEditor }, 'Done'),
+      el('span', { class: 'saved', id: 'ed-saved' }, 'Saved'),
       el('span', { class: 'spacer' }),
       el('span', { class: 'hint' }, '⌘↵ done · esc back'))
   );
@@ -1060,13 +1139,53 @@ function ancestor(test) {
 const unwrap = (node) => node.replaceWith(...node.childNodes);
 
 // Puts the caret at the end of a node.
+//
+// An empty element gets a text node first: a caret collapsed inside an element
+// with no children is a place Chrome will not type into, so the next keystroke
+// lands outside it. That is what made the second task item stay empty while the
+// text appeared after the list.
 function caretTo(node) {
+  if (!node) return;
+  if (node.nodeType === Node.ELEMENT_NODE && !node.firstChild) node.append(document.createTextNode(''));
+  const target = node.nodeType === Node.ELEMENT_NODE && node.lastChild?.nodeType === Node.TEXT_NODE
+    ? node.lastChild : node;
   const r = document.createRange();
-  r.selectNodeContents(node);
-  r.collapse(false);
+  if (target.nodeType === Node.TEXT_NODE) r.setStart(target, target.nodeValue.length);
+  else { r.selectNodeContents(target); r.collapse(false); }
+  r.collapse(true);
   const sel = getSelection();
   sel.removeAllRanges();
   sel.addRange(r);
+}
+
+// Typing into an empty note leaves a bare text node directly under the editor,
+// with no block around it at all. Every block tool asks "which block is the
+// caret in", gets nothing back, and acts on nothing: pressing Task next to a
+// line of text added an empty checkbox beside it instead of converting it.
+//
+// The nodes are moved into the paragraph rather than copied, so the caret, which
+// points at one of them, comes along and the cursor does not jump.
+function ensureBlocks() {
+  const a = $('#ed-area');
+  if (!a) return;
+  const BLOCK = /^(H[1-6]|UL|OL|PRE|BLOCKQUOTE|P|DIV|HR)$/;
+
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const p = document.createElement('p');
+    run[0].before(p);
+    p.append(...run);          // moves them: any range inside stays valid
+    run = [];
+  };
+
+  for (const node of [...a.childNodes]) {
+    const isBlock = node.nodeType === Node.ELEMENT_NODE && BLOCK.test(node.tagName);
+    if (isBlock) flush();
+    else if (node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim()) continue;
+    else run.push(node);
+  }
+  flush();
 }
 
 // execCommand leaves the DOM in states markdown has no way to express: a quote
@@ -1076,6 +1195,7 @@ function caretTo(node) {
 function tidyEditor() {
   const a = $('#ed-area');
   if (!a) return;
+  ensureBlocks();
 
   // Nested quotes flatten: markdown has one level and the bars just stack up.
   let guard = 0;
@@ -1096,19 +1216,33 @@ function tidyEditor() {
     }
   }
 
-  // Every task item needs its box, and a brand new one starts unticked.
+  // A task item is exactly a box and a span of text. Typing can land a bare text
+  // node straight into the <li>, beside the span rather than inside it, and then
+  // the item looks empty to everything that reads it — which is how a typed line
+  // got thrown away when the list ended.
   for (const list of a.querySelectorAll('ul.tasks')) {
     for (const li of list.children) {
       if (li.tagName !== 'LI') continue;
+
       let box = li.querySelector(':scope > .box');
       if (!box) {
         box = document.createElement('span');
         box.className = 'box';
         li.prepend(box);
       }
-      const text = [...li.childNodes].filter((n) => n !== box)
-        .map((n) => n.textContent).join('').trim();
-      if (!text) { box.classList.remove('on'); li.classList.remove('done'); }
+      box.setAttribute('contenteditable', 'false');
+
+      let span = [...li.children].find((c) => c !== box && !c.classList.contains('box'));
+      if (!span) {
+        span = document.createElement('span');
+        li.append(span);
+      }
+      // Anything loose in the item belongs in that span.
+      for (const node of [...li.childNodes]) {
+        if (node !== box && node !== span) span.append(node);
+      }
+
+      if (!span.textContent.trim()) { box.classList.remove('on'); li.classList.remove('done'); }
       li.classList.toggle('done', box.classList.contains('on'));
     }
   }
@@ -1149,7 +1283,7 @@ function toggleTasks() {
     for (const item of [...list.children]) {
       if (item.tagName !== 'LI') continue;
       const next = document.createElement('li');
-      next.innerHTML = `<span class="box"></span><span>${item.innerHTML}</span>`;
+      next.innerHTML = `<span class="box" contenteditable="false"></span><span>${item.innerHTML}</span>`;
       ul.append(next);
     }
     list.replaceWith(ul);
@@ -1160,7 +1294,7 @@ function toggleTasks() {
   const ul = document.createElement('ul');
   ul.className = 'tasks';
   const item = document.createElement('li');
-  item.innerHTML = `<span class="box"></span><span>${block ? block.innerHTML : ''}</span>`;
+  item.innerHTML = `<span class="box" contenteditable="false"></span><span>${block ? block.innerHTML : ''}</span>`;
   ul.append(item);
   if (block) block.replaceWith(ul); else a.append(ul);
   caretTo(item.lastElementChild);
@@ -1171,6 +1305,7 @@ function applyTool(k) {
   const a = $('#ed-area');
   if (!t || !a) return;
   a.focus();
+  ensureBlocks();      // so there is a block to act on, even in an empty note
 
   if (t.cmd) {
     document.execCommand(t.cmd, false, null);
@@ -1241,6 +1376,7 @@ function editorKeys(e) {
   if (!list || !list.classList.contains('tasks')) return;
 
   e.preventDefault();
+  tidyEditor();        // put any loose typing back inside its span first
   const textSpan = [...li.children].find((c) => !c.classList.contains('box'));
   // Enter on an empty item ends the list, the same as every other editor.
   if (!textSpan || !textSpan.textContent.trim()) {
@@ -1251,7 +1387,7 @@ function editorKeys(e) {
     caretTo(p);
   } else {
     const next = document.createElement('li');
-    next.innerHTML = '<span class="box"></span><span></span>';
+    next.innerHTML = '<span class="box" contenteditable="false"></span><span></span>';
     li.after(next);
     caretTo(next.lastElementChild);
   }
@@ -1284,6 +1420,7 @@ function openVaultEditor(item) {
 function closeVaultEditor() {
   state.vEditing = null;
   state.vDraft = null;
+  applyEditorWidth(false);
   draw();
   $('#q').focus();
 }
@@ -1895,6 +2032,7 @@ async function writeRow(table, id, row) {
 const goHome = safe(async () => {
   if (state.editing) await closeEditor();       // saves the draft on its way out
   if (state.vEditing) closeVaultEditor();
+  applyEditorWidth(false);
   if (state.screen) setScreen(null);
   $('#q').value = '';
   state.filter = 'all';

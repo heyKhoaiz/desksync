@@ -57,7 +57,10 @@ const md = (() => {
       } else if ((m = raw.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/))) {
         closePara(); open('ul', 'tasks');
         const on = m[1].toLowerCase() === 'x';
-        out += `<li class="${on ? 'done' : ''}"><span class="box ${on ? 'on' : ''}"></span><span>${inline(m[2])}</span></li>`;
+        // contenteditable=false: the box is a control, not text. Left editable it
+        // attracts the caret, and the next keystroke is typed inside the checkbox.
+        out += `<li class="${on ? 'done' : ''}"><span class="box ${on ? 'on' : ''}" contenteditable="false"></span>` +
+               `<span>${inline(m[2])}</span></li>`;
       } else if ((m = raw.match(/^\s*[-*]\s+(.*)$/))) {
         closePara(); open('ul'); out += `<li>${inline(m[1])}</li>`;
       } else if ((m = raw.match(/^\s*\d+[.)]\s+(.*)$/))) {
