@@ -81,12 +81,15 @@
     await wait(30);
   };
 
-  const editorType = (text) => {
+  // The editor is contenteditable now, so "typing" means replacing its content
+  // and letting the input handler read it back into markdown.
+  const editorType = (htmlOrText) => {
     const a = document.getElementById('ed-area');
-    a.value = text;
+    a.innerHTML = /<[a-z]/i.test(htmlOrText) ? htmlOrText : `<p>${htmlOrText}</p>`;
     a.dispatchEvent(new Event('input', { bubbles: true }));
     return a;
   };
+  const editorMarkdown = () => md.fromHtml(document.getElementById('ed-area').innerHTML);
 
   try {
     // ================= SEARCH =================
@@ -252,35 +255,59 @@
     ok('its list survives', /<ul><li>first<\/li>/.test(md2), md2);
 
     // ================= NOTES: EDITOR =================
-    group('notes — editor');
+    group('notes \u2014 editor');
     await openNoteEditor('Old rich-text note');
-    ok('editing a pre-markdown note converts it',
-      document.getElementById('ed-area').value.includes('**old**'),
-      document.getElementById('ed-area').value.slice(0, 80));
+    ok('the editor shows the note formatted, not its markup',
+      /<strong>old<\/strong>/.test(document.getElementById('ed-area').innerHTML),
+      document.getElementById('ed-area').innerHTML.slice(0, 120));
+    // (the sign-in form also uses data-mode, so look only inside the toolbar)
+    ok('there is no Preview button to press', !document.querySelector('.ed-bar [data-mode]'));
+    ok('the surface is editable',
+      document.getElementById('ed-area').getAttribute('contenteditable') === 'true');
 
-    const area = document.getElementById('ed-area');
-    area.value = 'plain'; area.setSelectionRange(0, 5);
-    document.querySelector('[title=Bold]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    eq('the toolbar wraps the selection', area.value, '**plain**');
+    ok('a pre-markdown note still converts',
+      editorMarkdown().includes('**old**'), editorMarkdown().slice(0, 80));
 
-    area.value = 'one\ntwo'; area.setSelectionRange(0, 7);
-    const bullet = () => document.querySelector('[title="Bullet list"]')
+    // Formatting goes through execCommand on a real selection.
+    const area = editorType('<p>make me bold</p>');
+    const sel = getSelection();
+    const r = document.createRange();
+    r.selectNodeContents(area.querySelector('p'));
+    sel.removeAllRanges(); sel.addRange(r);
+    document.querySelector('[data-tool=bold]')
       .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    bullet();
-    eq('a prefix tool marks every selected line', area.value, '- one\n- two');
-    bullet();
-    eq('pressing it again clears the prefix from the same lines', area.value, 'one\ntwo');
+    ok('the toolbar bolds the selection in place',
+      /<b>|<strong>/i.test(area.innerHTML), area.innerHTML);
+    ok('and it round-trips to markdown', /\*\*make me bold\*\*/.test(editorMarkdown()), editorMarkdown());
 
-    area.value = '- [ ] first'; area.setSelectionRange(11, 11);
-    area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    eq('Enter carries the list marker down', area.value, '- [ ] first\n- [ ] ');
-    area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    eq('Enter on an empty marker ends the list', area.value, '- [ ] first\n');
+    // Everything the toolbar can make has to survive the trip back to markdown.
+    editorType('<h2>Heading</h2><ul><li>one</li><li>two</li></ul>' +
+      '<ol><li>first</li></ol><blockquote>quoted</blockquote>' +
+      '<p>a <code>span</code> and <a href="https://example.com">a link</a></p>' +
+      '<ul class="tasks"><li class="done"><span class="box on"></span><span>done it</span></li>' +
+      '<li><span class="box"></span><span>not yet</span></li></ul>');
+    const round = editorMarkdown();
+    ok('a heading survives', /^## Heading/m.test(round), round);
+    ok('a bullet list survives', /^- one\n- two/m.test(round), round);
+    ok('a numbered list survives', /^1\. first/m.test(round), round);
+    ok('a quote survives', /^> quoted/m.test(round), round);
+    ok('inline code survives', /`span`/.test(round), round);
+    ok('a link survives', /\[a link\]\(https:\/\/example\.com\)/.test(round), round);
+    ok('a ticked task survives', /^- \[x\] done it/m.test(round), round);
+    ok('an unticked task survives', /^- \[ \] not yet/m.test(round), round);
 
-    document.querySelector('[data-mode=preview]').click();
-    ok('Preview renders what was typed', !!document.querySelector('.ed-prev .tasks'));
-    document.querySelector('[data-mode=write]').click();
-    ok('Write comes back', !!document.getElementById('ed-area'));
+    // And rendering that markdown again gives back what was on screen.
+    const again = md.render(round);
+    ok('rendering it again is stable', /<h2>Heading<\/h2>/.test(again) && /class="tasks"/.test(again),
+      again.slice(0, 120));
+
+    // A task box is a control inside the editor.
+    editorType('<ul class="tasks"><li><span class="box"></span><span>tick me</span></li></ul>');
+    document.querySelector('#ed-area .box').click();
+    ok('clicking a task box ticks it off', /- \[x\] tick me/.test(editorMarkdown()), editorMarkdown());
+
+    document.getElementById('home').click();
+    await wait(120);
 
     // ================= NOTES: SAVING =================
     group('notes — saving');
@@ -361,6 +388,106 @@
     window.__missing = [];
     document.getElementById('home').click();
     await wait(80);
+
+    // ================= REACHING THE ACTIONS =================
+    // A filtered list used to hide every action, so an empty Notes list was a
+    // dead end: nothing in it, and no way to put anything in it.
+    group('adding from a filtered list');
+    await reset();
+
+    document.querySelector('.rail [data-f=note]').click();
+    await wait(40);
+    ok('the Notes filter still offers New note', !!act('New note'), actTitles());
+    ok('and not the other kinds', !act('Save this tab') && !act('Save the clipboard'), actTitles());
+
+    document.querySelector('.rail [data-f=link]').click();
+    await wait(40);
+    ok('the Read later filter offers Save this tab', !!act('Save this tab'), actTitles());
+
+    document.querySelector('.rail [data-f=clip]').click();
+    await wait(40);
+    ok('the Clipboard filter offers Save the clipboard', !!act('Save the clipboard'), actTitles());
+
+    // An empty filtered list is the case that was broken.
+    window.__DATA.notes.length = 0;
+    await loadNotes();
+    document.querySelector('.rail [data-f=note]').click();
+    await wait(60);
+    ok('an empty Notes list still offers New note', !!act('New note'), actTitles());
+
+    type('anything');
+    ok('searching hides the actions', actTitles().length === 0, actTitles());
+    type('');
+    document.querySelector('.rail [data-f=all]').click();
+    await wait(40);
+
+    // ================= VAULT EDITOR =================
+    // Creating a login was dropped in the redesign and nothing noticed, because
+    // no test asked for it.
+    group('vault editor');
+    await reset();
+    await unlockVault();
+
+    document.querySelector('.rail [data-f=vault]').click();
+    await wait(40);
+    ok('the Vault filter offers New login', !!act('New login'), actTitles());
+
+    act('New login').click();
+    await wait(60);
+    ok('it opens a form', !!document.getElementById('v-pass'), document.querySelector('.d-kind')?.textContent);
+    ok('prefilled from the page you are on',
+      document.getElementById('v-url').value.includes('github.com'),
+      document.getElementById('v-url').value);
+
+    const vaultBefore = window.__DATA.vault_items.length;
+    const vt = document.getElementById('v-title');
+    vt.value = 'Made by a test'; vt.dispatchEvent(new Event('input', { bubbles: true }));
+    const vu = document.getElementById('v-user');
+    vu.value = 'someone@example.com'; vu.dispatchEvent(new Event('input', { bubbles: true }));
+    const vp = document.getElementById('v-pass');
+    vp.value = 'a-real-password'; vp.dispatchEvent(new Event('input', { bubbles: true }));
+
+    ok('the password starts masked', vp.type === 'password', vp.type);
+    $$('.v-row button')[0].click();
+    ok('and can be revealed', vp.type === 'text', vp.type);
+
+    $$('.v-row button')[1].click();
+    ok('a password can be generated', vp.value.length > 8 && vp.value !== 'a-real-password', vp.value);
+    vp.value = 'a-real-password'; vp.dispatchEvent(new Event('input', { bubbles: true }));
+
+    $$('.d-foot button').find((b) => /Save/.test(b.textContent)).click();
+    await wait(200);
+    eq('saving adds one row', window.__DATA.vault_items.length, vaultBefore + 1);
+    const made = window.__DATA.vault_items.find((v) => v._plain.title === 'Made by a test');
+    ok('the login is stored encrypted, not in columns',
+      !!made && !('title' in made) && !('password' in made), made && Object.keys(made));
+    eq('with the password that was typed', made._plain.password, 'a-real-password');
+
+    await wait(60);
+    rowFor('Made by a test').click();
+    await wait(30);
+    $$('.d-foot button').find((b) => /Edit/.test(b.textContent)).click();
+    await wait(60);
+    ok('an existing login can be edited', document.getElementById('v-title').value === 'Made by a test',
+      document.getElementById('v-title')?.value);
+    const vu2 = document.getElementById('v-user');
+    vu2.value = 'changed@example.com'; vu2.dispatchEvent(new Event('input', { bubbles: true }));
+    $$('.d-foot button').find((b) => /Save/.test(b.textContent)).click();
+    await wait(200);
+    eq('editing does not add a second row', window.__DATA.vault_items.length, vaultBefore + 1);
+    eq('and the change is kept',
+      window.__DATA.vault_items.find((v) => v._plain.title === 'Made by a test')._plain.username,
+      'changed@example.com');
+
+    rowFor('Made by a test').click();
+    await wait(30);
+    $$('.d-foot button').find((b) => /Edit/.test(b.textContent)).click();
+    await wait(60);
+    $$('.d-foot button').find((b) => /Cancel/.test(b.textContent)).click();
+    await wait(60);
+    ok('Cancel leaves the form', !document.getElementById('v-pass'));
+    document.querySelector('.rail [data-f=all]').click();
+    await wait(40);
 
     // ================= READ LATER =================
     group('read later');
@@ -497,6 +624,21 @@
       { body: document.body.offsetWidth, client: de.clientWidth });
     ok('Everything and Notes do not share a glyph',
       document.querySelector('#i-all').innerHTML !== document.querySelector('#i-note').innerHTML);
+
+    // The editor toolbar does not fit a narrow pane. The mode switch must stay
+    // on screen whatever happens to the formatting tools.
+    await reset();
+    await openNoteEditor('Grocery');
+    const barBox = document.querySelector('.ed-bar').getBoundingClientRect();
+    const tools = document.querySelector('.ed-bar .tools');
+    const last = [...tools.querySelectorAll('button')].pop().getBoundingClientRect();
+    ok('the toolbar never spills outside its bar',
+      tools.getBoundingClientRect().right <= barBox.right + 0.5,
+      { bar: Math.round(barBox.right), tools: Math.round(tools.getBoundingClientRect().right) });
+    ok('the formatting tools scroll rather than being cut off',
+      tools.scrollWidth >= tools.clientWidth, { scroll: tools.scrollWidth, client: tools.clientWidth });
+    document.getElementById('home').click();
+    await wait(80);
   } catch (e) {
     fail++;
     lines.push(`<span class="no">  FAIL</span> threw: ${e && e.message}\n${e && e.stack}`);

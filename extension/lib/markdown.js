@@ -89,44 +89,89 @@ const md = (() => {
       .trim();
   }
 
-  // Legacy notes: the old editor was contenteditable and produced a small, known set
-  // of tags (see ALLOWED in the old popup.js), so this only has to handle those.
+  // HTML back to markdown.
+  //
+  // Two callers: notes written before the markdown editor, and the editor itself,
+  // which now edits rendered HTML in place rather than markdown source. That
+  // means everything render() can produce has to survive the trip back, or
+  // editing a note would quietly drop its headings, quotes, code and links.
   function fromHtml(html) {
     const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
+    const root = doc.body.firstChild;
+    const BLOCK = /^(H[1-6]|UL|OL|PRE|BLOCKQUOTE|HR|P|DIV|LI)$/;
 
-    const walk = (node) => {
+    // Everything inside one block, as a single line of markdown.
+    const inlineOf = (node) => {
       let out = '';
       for (const n of node.childNodes) {
         if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue.replace(/\s+/g, ' '); continue; }
         if (n.nodeType !== Node.ELEMENT_NODE) continue;
         const tag = n.tagName;
-        const inner = walk(n);
+        const inner = inlineOf(n);
+        const t = inner.trim();
         if (tag === 'BR') out += '\n';
-        else if (tag === 'B' || tag === 'STRONG') out += inner.trim() ? `**${inner.trim()}**` : '';
-        else if (tag === 'I' || tag === 'EM') out += inner.trim() ? `*${inner.trim()}*` : '';
-        else if (tag === 'S' || tag === 'STRIKE') out += inner.trim() ? `~~${inner.trim()}~~` : '';
-        // Underline has no markdown. The old editor also had a highlighter, and both
-        // read as emphasis, so they become == highlight == rather than being dropped.
-        else if (tag === 'U') out += inner.trim() ? `==${inner.trim()}==` : '';
-        else if (tag === 'SPAN') out += n.style?.backgroundColor && inner.trim() ? `==${inner.trim()}==` : inner;
-        else if (tag === 'UL' || tag === 'OL') {
-          let i = 1;
-          for (const li of n.children) {
-            const t = walk(li).trim();
-            if (t) out += `\n${tag === 'OL' ? i++ + '.' : '-'} ${t}`;
-          }
-          out += '\n';
-        } else if (tag === 'LI') out += inner;
-        else if (tag === 'P' || tag === 'DIV') out += (inner.trim() ? inner.trim() : '') + '\n';
-        else out += inner;
+        else if (tag === 'B' || tag === 'STRONG') out += t ? `**${t}**` : '';
+        else if (tag === 'I' || tag === 'EM') out += t ? `*${t}*` : '';
+        else if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') out += t ? `~~${t}~~` : '';
+        // Underline has no markdown, and the old editor's highlighter read the
+        // same way, so both become a highlight rather than being dropped.
+        else if (tag === 'U' || tag === 'MARK') out += t ? `==${t}==` : '';
+        else if (tag === 'CODE') out += t ? '`' + t + '`' : '';
+        else if (tag === 'A') {
+          const href = n.getAttribute('href') || '';
+          out += href ? `[${t || href}](${href})` : t;
+        } else if (tag === 'SPAN') {
+          if (n.classList.contains('box')) continue;          // a task checkbox
+          out += n.style?.backgroundColor && t ? `==${t}==` : inner;
+        } else out += inner;
       }
       return out;
     };
 
-    return walk(doc.body.firstChild)
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]+$/gm, '')
-      .trim();
+    const chunks = [];
+    const push = (text) => { if (text && text.trim()) chunks.push(text.replace(/[ \t]+$/gm, '')); };
+
+    const walk = (node) => {
+      for (const n of node.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE) { push(n.nodeValue.trim()); continue; }
+        if (n.nodeType !== Node.ELEMENT_NODE) continue;
+        const tag = n.tagName;
+
+        if (/^H[1-6]$/.test(tag)) {
+          push('#'.repeat(Math.min(3, +tag[1])) + ' ' + inlineOf(n).trim());
+        } else if (tag === 'HR') {
+          push('---');
+        } else if (tag === 'PRE') {
+          push('```\n' + (n.textContent || '').replace(/\n+$/, '') + '\n```');
+        } else if (tag === 'BLOCKQUOTE') {
+          push(inlineOf(n).split('\n').map((l) => '> ' + l.trim()).join('\n'));
+        } else if (tag === 'UL' || tag === 'OL') {
+          const lines = [];
+          let i = 1;
+          for (const li of n.children) {
+            if (li.tagName !== 'LI') continue;
+            const box = li.querySelector(':scope > .box');
+            const text = inlineOf(li).trim();
+            if (box || n.classList.contains('tasks')) {
+              const done = li.classList.contains('done') || box?.classList.contains('on');
+              lines.push(`- [${done ? 'x' : ' '}] ${text}`);
+            } else {
+              lines.push((tag === 'OL' ? `${i++}.` : '-') + ' ' + text);
+            }
+          }
+          push(lines.join('\n'));
+        } else if (tag === 'P' || tag === 'DIV') {
+          // contenteditable wraps blocks in divs, so recurse when it holds any.
+          if ([...n.children].some((c) => BLOCK.test(c.tagName))) walk(n);
+          else push(inlineOf(n).trim());
+        } else {
+          push(inlineOf(n).trim());
+        }
+      }
+    };
+
+    walk(root);
+    return chunks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   // A note row may be markdown or legacy HTML; everything else reads one of these.

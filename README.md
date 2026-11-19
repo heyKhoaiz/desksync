@@ -41,7 +41,8 @@ Run `make` to list them all: `env`, `ext`, `zip`, `icons`, `app`, `apk`, `device
 | Rename or delete a tag | Settings → Tags. Renaming rewrites it everywhere; deleting only removes the label, never the item |
 | Save tab to read later | `Alt+Shift+S`, right-click → *Save page/link to Read Later*, or the popup button |
 | Save selected text as a note | right-click → *Save selection as a note* |
-| Write a note | notes are markdown; the editor has a toolbar and a Preview tab. There is no Save button — it saves as you type, because a popup closes as soon as you click elsewhere |
+| Write a note | the editor shows the note as it will look — bold text is bold while you type it, with a toolbar for headings, lists, quotes, code and links. There is no Preview button because there is nothing to preview, and no Save button: it saves as you type, because a popup closes as soon as you click elsewhere |
+| Add a login | Vault → *New login*. Editing one has an explicit Save, unlike notes: a password saved half-typed is a login you can no longer use |
 | Clipboard history | off by default: in Settings, turn on capture and click *Allow* on each site, or use *Save from clipboard* in the Clipboard tab |
 | Vault | Vault tab → set a master password (cannot be recovered) |
 | Fill a login | open the site, then Vault → the item saved for that site → *Fill* |

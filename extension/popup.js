@@ -13,7 +13,7 @@ const state = {
   theme: 'system',
   notes: [], later: [], clips: [], vault: [], trash: [],
   vaultKey: null, vaultState: 'locked',     // 'setup' | 'locked' | 'open'
-  items: [], rows: [], active: 0,
+  items: [], rows: [], active: 0, vEditing: null, vDraft: null,
   filter: 'all', screen: null, editing: null,
   tagColors: {},
   tabId: null, tabHost: null, tabOrigin: null
@@ -145,6 +145,7 @@ async function writeRow(table, id, row) {
 // UI needs one of these and the brand mark is where people already look for it.
 const goHome = safe(async () => {
   if (state.editing) await closeEditor();       // saves the draft on its way out
+  if (state.vEditing) closeVaultEditor();
   if (state.screen) setScreen(null);
   $('#q').value = '';
   state.filter = 'all';
@@ -354,17 +355,35 @@ function matches(raw) {
 
 // ---------- Capture actions ----------
 // The three things you come here to add. They used to be spread across the tabs.
+// The way to add a thing has to be reachable from wherever you are. Filtering to
+// Notes used to hide every action, so an empty Notes list was a dead end with no
+// way to create one. Each filter keeps the action that makes its own kind.
 function actions() {
-  const list = [
-    { action: 'tab',   icon: 'bookmark', title: 'Save this tab', where: state.tabHost || 'no page',
-      sub: state.tabHost || 'No page to save', kbd: 'Alt+Shift+S', disabled: !state.tabHost },
-    { action: 'clip',  icon: 'clip', title: 'Save the clipboard', sub: 'Adds the clipboard as a clip' },
-    { action: 'note',  icon: 'plus', title: 'New note', sub: 'Start an empty note' }
-  ];
-  if (state.vaultState !== 'open') {
-    list.unshift({ action: 'vault', icon: 'lock',
+  const f = state.filter;
+  const forAll = f === 'all';
+  const list = [];
+
+  if (state.vaultState !== 'open' && (forAll || f === 'vault')) {
+    list.push({ action: 'vault', icon: 'lock',
       title: state.vaultState === 'setup' ? 'Set up your vault' : 'Unlock the vault',
       sub: 'Saved logins are hidden until you do' });
+  }
+  if (forAll || f === 'link') {
+    list.push({ action: 'tab', icon: 'bookmark', title: 'Save this tab',
+      where: state.tabHost || 'no page', sub: state.tabHost || 'No page to save',
+      kbd: 'Alt+Shift+S', disabled: !state.tabHost });
+  }
+  if (forAll || f === 'clip') {
+    list.push({ action: 'clip', icon: 'clip', title: 'Save the clipboard',
+      sub: 'Adds the clipboard as a clip' });
+  }
+  if (forAll || f === 'note') {
+    list.push({ action: 'note', icon: 'plus', title: 'New note', sub: 'Start an empty note' });
+  }
+  // Only under the Vault filter: adding a login by hand is rarer than the rest,
+  // and Everything is already four rows deep.
+  if (state.vaultState === 'open' && f === 'vault') {
+    list.push({ action: 'login', icon: 'key', title: 'New login', sub: 'Save a username and password' });
   }
   return list.map((a) => ({ ...a, kind: 'action', tags: [] }));
 }
@@ -380,7 +399,9 @@ function draw() {
   drawTagbar(text, tags);
 
   const found = matches(raw);
-  const showActions = !raw && state.filter === 'all';
+  // Shown under a type filter too, so a filtered empty list still offers the
+  // way to fill it. Hidden once you are searching: then you want results.
+  const showActions = !raw;
   state.rows = showActions ? [...actions(), ...found] : found;
 
   const list = $('#list');
@@ -388,7 +409,7 @@ function draw() {
 
   if (!state.rows.length) {
     list.append(emptyRow(text, tags));
-    if (!state.editing) drawDetail(null);
+    if (!state.editing && !state.vEditing) drawDetail(null);
     return;
   }
 
@@ -518,6 +539,7 @@ async function clickRow(i) {
   // it and carrying on would wipe the session we are about to open. Clicking
   // "New note" with an editor already open lost the new note that way.
   if (state.editing) await closeEditor();
+  if (state.vEditing) closeVaultEditor();        // an unsaved login is discarded, by design
   setActive(i, false);
   // An action row is a button, not something to inspect: clicking it runs it.
   // Selecting it and making you click "Do it" in the other pane read as nothing
@@ -530,6 +552,7 @@ async function clickRow(i) {
 // Shared by Enter and by clicking an action row.
 function runRow(item) {
   if (item.action === 'vault') return drawVaultGate();
+  if (item.action === 'login') return openVaultEditor(null);
   if (item.disabled) return toast(item.action === 'tab' ? "Can't save this page" : 'Not available here');
   runAction(item.action);
 }
@@ -653,6 +676,7 @@ function detailFoot(item) {
       : el('button', { class: 'primary', onclick: safe(() => copy(item.row.password || '', 'Password copied')) }, icon('key'), 'Copy password'),
     el('button', { class: 'ghost', onclick: safe(() => copy(item.row.username || '', 'Username copied')) }, icon('user'), 'Copy user'),
     el('button', { class: 'ghost', onclick: () => revealPassword(item) }, icon('eye'), 'Show'),
+    el('button', { class: 'ghost', onclick: () => openVaultEditor(item) }, icon('edit'), 'Edit'),
     el('span', { class: 'spacer' }),
     el('button', { class: 'ghost', title: 'Lock the vault', 'aria-label': 'Lock the vault', onclick: safe(lockVault) }, icon('lock')),
     del
@@ -774,25 +798,33 @@ function tagRow(item) {
 // After a tag change the row in the list is stale too, so redraw both panes.
 function refreshAfterTags(item) {
   draw();
-  if (state.editing) { drawEditor(state.editorMode); focusEditor(); }
+  if (state.editing) { drawEditor(); focusEditor(); }
   else drawDetail(item);
 }
 
 // ---------- Note editor ----------
-// A popup closes the moment you click anywhere else in the browser, so there is no
-// Save button: it writes as you type, debounced.
+// The note is edited as it looks, not as markdown source: bold text is bold
+// while you type it. There is no Preview button because there is nothing to
+// preview — the editing surface is the rendered note.
+//
+// Markdown is still what gets stored. The note is rendered to HTML on open and
+// turned back into markdown on save, so the file format does not depend on the
+// browser's contenteditable quirks and the Android app keeps reading one thing.
+//
+// There is also no Save button: a popup closes the moment you click anywhere
+// else in the browser, so it writes as you type, debounced.
 const TOOLS = [
-  { k: 'b', cls: 'b', txt: 'B', label: 'Bold', wrap: ['**', '**'] },
-  { k: 'i', cls: 'i-t', txt: 'I', label: 'Italic', wrap: ['*', '*'] },
-  { k: 's', cls: 's', txt: 'S', label: 'Strikethrough', wrap: ['~~', '~~'] },
+  { k: 'bold',   cls: 'b',    txt: 'B',  label: 'Bold',          cmd: 'bold' },
+  { k: 'italic', cls: 'i-t',  txt: 'I',  label: 'Italic',        cmd: 'italic' },
+  { k: 'strike', cls: 's',    txt: 'S',  label: 'Strikethrough', cmd: 'strikeThrough' },
   { sep: true },
-  { k: 'h', cls: '', txt: 'H', label: 'Heading', line: '## ' },
-  { k: 'ul', cls: '', txt: '•', label: 'Bullet list', line: '- ' },
-  { k: 'task', cls: '', txt: '☐', label: 'Task list', line: '- [ ] ' },
-  { k: 'quote', cls: '', txt: '“', label: 'Quote', line: '> ' },
+  { k: 'h',      cls: '',     txt: 'H',  label: 'Heading',       block: 'H2' },
+  { k: 'ul',     cls: '',     txt: '•', label: 'Bullet list',   cmd: 'insertUnorderedList' },
+  { k: 'ol',     cls: '',     txt: '1.', label: 'Numbered list', cmd: 'insertOrderedList' },
+  { k: 'quote',  cls: '',     txt: '“', label: 'Quote',         block: 'BLOCKQUOTE' },
   { sep: true },
-  { k: 'code', cls: 'mono', txt: '{}', label: 'Code', wrap: ['`', '`'] },
-  { k: 'link', cls: 'mono', txt: '[]', label: 'Link', wrap: ['[', '](https://)'] }
+  { k: 'code',   cls: 'mono', txt: '{}', label: 'Code',          wrap: 'code' },
+  { k: 'link',   cls: 'mono', txt: '[]', label: 'Link',          link: true }
 ];
 
 function newNote() {
@@ -802,16 +834,24 @@ function newNote() {
 
 function openEditor(item) {
   state.editing = item;
-  // Converted once, on open: a legacy HTML note becomes markdown and is saved that way.
+  // Converted once, on open: a note written before the markdown editor becomes
+  // markdown here and is saved that way from now on.
   state.draft = { title: item.row.title || '', body: md.toMarkdown(item.row), tags: [...item.tags] };
-  state.editorMode = 'write';
-  drawEditor('write');
+  drawEditor();
   focusEditor();
 }
 
 function focusEditor() {
-  const a = $('.ed-area');
-  if (a) { a.focus(); a.setSelectionRange(a.value.length, a.value.length); }
+  const a = $('#ed-area');
+  if (!a) return;
+  a.focus();
+  // Caret to the end, so typing continues the note rather than overwriting it.
+  const r = document.createRange();
+  r.selectNodeContents(a);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
 }
 
 const closeEditor = safe(async () => {
@@ -826,8 +866,7 @@ const closeEditor = safe(async () => {
   $('#q').focus();
 });
 
-function drawEditor(mode) {
-  state.editorMode = mode;
+function drawEditor() {
   const item = state.editing;
   const pane = $('#detail');
   pane.replaceChildren();
@@ -842,47 +881,53 @@ function drawEditor(mode) {
     if (e.key === 'Escape') { e.preventDefault(); closeEditor(); }
   });
 
+  // The formatting tools scroll; nothing else in the bar does. In a pane this
+  // narrow the toolbar does not fit, and losing a control off the right edge is
+  // worse than having to scroll for a less-used one.
   const bar = el('div', { class: 'ed-bar' },
-    ...TOOLS.map((t) => t.sep
-      ? el('span', { class: 'sep' })
-      : el('button', {
-          class: t.cls, title: t.label, 'aria-label': t.label,
-          onmousedown: (e) => { e.preventDefault(); applyTool(t.k); }
-        }, t.txt)),
-    el('span', { class: 'right' },
-      el('button', { class: 'tab', 'data-mode': 'write', 'aria-pressed': String(mode === 'write'),
-        onclick: () => drawEditor('write') }, 'Write'),
-      el('button', { class: 'tab', 'data-mode': 'preview', 'aria-pressed': String(mode === 'preview'),
-        onclick: () => drawEditor('preview') }, 'Preview')));
+    el('span', { class: 'tools' },
+      ...TOOLS.map((t) => t.sep
+        ? el('span', { class: 'sep' })
+        : el('button', {
+            class: t.cls, title: t.label, 'aria-label': t.label, 'data-tool': t.k,
+            // mousedown, not click: the selection in the note must survive being
+            // formatted, and clicking a button would move focus first.
+            onmousedown: (e) => { e.preventDefault(); applyTool(t.k); }
+          }, t.txt))),
+    el('span', { class: 'right' }, el('span', { class: 'saved', id: 'ed-saved' }, 'Saved')));
 
-  let body;
-  if (mode === 'write') {
-    body = el('textarea', {
-      class: 'ed-area', id: 'ed-area', spellcheck: 'true',
-      placeholder: 'Write in markdown…', 'aria-label': 'Note body'
-    });
-    body.value = state.draft.body;
-    body.addEventListener('input', () => { state.draft.body = body.value; queueSave(); });
-    body.addEventListener('keydown', editorKeys);
-  } else {
-    body = el('div', { class: 'ed-prev md', html: md.render(state.draft.body) || '<p class="muted">Nothing to preview.</p>' });
-  }
+  const body = el('div', {
+    class: 'ed-rich md', id: 'ed-area', contenteditable: 'true', spellcheck: 'true',
+    role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Note',
+    'data-placeholder': 'Write your note…'
+  });
+  body.innerHTML = md.render(state.draft.body);
+  body.addEventListener('input', () => { readBack(); queueSave(); });
+  body.addEventListener('keydown', editorKeys);
+  // A task box is a control, not text: clicking one ticks it off.
+  body.addEventListener('click', (e) => {
+    const box = e.target.closest('.box');
+    if (!box) return;
+    const li = box.closest('li');
+    const done = box.classList.toggle('on');
+    li?.classList.toggle('done', done);
+    readBack(); queueSave();
+  });
 
   pane.append(
     el('header', { class: 'd-band' },
-      el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--note)' }), 'Note · editing'),
+      el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--note)' }), 'Note'),
       title,
-      el('p', { class: 'd-sub' }, 'Markdown' + (item.when ? ' · ' + ago(item.when) : ''))),
+      el('p', { class: 'd-sub' }, item.when ? ago(item.when) : 'New note')),
     tagRow({ ...item, tags: state.draft.tags, row: item.row, kind: 'note' }),
     el('div', { class: 'ed' }, bar, body),
     el('footer', { class: 'ed-foot' },
       el('button', { class: 'primary', onclick: closeEditor }, 'Done'),
-      el('span', { class: 'saved', id: 'ed-saved' }, 'Saved'),
       el('span', { class: 'spacer' }),
       el('span', { class: 'hint' }, '⌘↵ done · esc back'))
   );
 
-  // Esc and Cmd+Enter work anywhere in the pane, including on the Preview tab.
+  // Esc and Cmd+Enter work anywhere in the pane, including from a tag input.
   pane.onkeydown = (e) => {
     if (!state.editing) return;
     if (e.target.tagName === 'INPUT' && e.target.hasAttribute('list')) return;   // typing a tag
@@ -890,6 +935,12 @@ function drawEditor(mode) {
       e.preventDefault(); e.stopPropagation(); closeEditor();
     }
   };
+}
+
+// What is on screen is the source of truth; markdown is derived from it.
+function readBack() {
+  const a = $('#ed-area');
+  if (a && state.draft) state.draft.body = md.fromHtml(a.innerHTML);
 }
 
 function queueSave() {
@@ -903,6 +954,7 @@ const flushDraft = safe(async (final, itemOverride) => {
   clearTimeout(queueSave._t);
   const item = itemOverride || state.editing;
   if (!item || !state.draft) return;
+  readBack();
 
   const { title, body, tags } = state.draft;
 
@@ -921,64 +973,190 @@ const flushDraft = safe(async (final, itemOverride) => {
   loadNotes();
 });
 
+// Returns the block element the caret sits in, within the note.
+function currentBlock() {
+  const a = $('#ed-area');
+  let node = getSelection()?.anchorNode;
+  while (node && node !== a) {
+    if (node.nodeType === Node.ELEMENT_NODE && /^(H[1-6]|BLOCKQUOTE|P|DIV|LI|PRE)$/.test(node.tagName)) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
 function applyTool(k) {
   const t = TOOLS.find((x) => x.k === k);
   const a = $('#ed-area');
-  if (!t) return;
-  if (!a) { drawEditor('write'); return; }                   // pressed while on Preview
-
-  const s0 = a.selectionStart, e0 = a.selectionEnd, v = a.value;
-  if (t.wrap) {
-    const [L, R] = t.wrap;
-    const sel = v.slice(s0, e0);
-    a.value = v.slice(0, s0) + L + sel + R + v.slice(e0);
-    const caret = sel ? s0 + L.length + sel.length + R.length : s0 + L.length;
-    a.setSelectionRange(caret, caret);
-  } else {
-    // Toggles the prefix on every line the selection touches.
-    const ls = v.lastIndexOf('\n', s0 - 1) + 1;
-    let le = v.indexOf('\n', e0); if (le < 0) le = v.length;
-    const body = v.slice(ls, le).split('\n')
-      .map((ln) => (ln.startsWith(t.line) ? ln.slice(t.line.length) : t.line + ln)).join('\n');
-    a.value = v.slice(0, ls) + body + v.slice(le);
-    // Keep the same lines selected so pressing the button again toggles them
-    // back, instead of collapsing to the end and catching only the last line.
-    a.setSelectionRange(ls, ls + body.length);
-  }
+  if (!t || !a) return;
   a.focus();
-  state.draft.body = a.value;
+
+  if (t.cmd) {
+    document.execCommand(t.cmd, false, null);
+  } else if (t.block) {
+    // Pressing Heading inside a heading takes it back off, rather than doing nothing.
+    const here = currentBlock()?.tagName;
+    document.execCommand('formatBlock', false, here === t.block ? 'P' : t.block);
+  } else if (t.wrap) {
+    const sel = getSelection();
+    const text = sel?.toString();
+    if (text) document.execCommand('insertHTML', false, `<${t.wrap}>${md.escape(text)}</${t.wrap}>`);
+  } else if (t.link) {
+    return askForLink();
+  }
+
+  readBack();
   queueSave();
 }
 
+// A link needs a URL, and window.prompt closes the popup on some platforms, so
+// the toolbar grows a field instead.
+function askForLink() {
+  const bar = $('.ed-bar .tools');
+  if (!bar || bar.querySelector('.link-in')) return;
+  const sel = getSelection();
+  const range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+
+  const input = el('input', { class: 'link-in', placeholder: 'https://…', 'aria-label': 'Link address' });
+  bar.append(input);
+  input.focus();
+
+  const done = (apply) => {
+    const url = input.value.trim();
+    input.remove();
+    if (!apply || !url) return;
+    const a = $('#ed-area');
+    a.focus();
+    if (range) { const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(range); }
+    if (getSelection().toString()) document.execCommand('createLink', false, url);
+    else document.execCommand('insertHTML', false, `<a href="${md.escape(url)}">${md.escape(url)}</a>`);
+    readBack(); queueSave();
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    if (e.key === 'Escape') { e.preventDefault(); done(false); }
+  });
+  input.addEventListener('blur', () => done(true));
+}
+
 function editorKeys(e) {
-  const a = e.target;
-  if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) return;   // handled on the pane
-  if ((e.metaKey || e.ctrlKey) && 'bik'.includes(e.key.toLowerCase())) {
-    e.preventDefault();
-    applyTool({ b: 'b', i: 'i', k: 'link' }[e.key.toLowerCase()]);
-    return;
+  // Esc and Cmd+Enter belong to the pane; contenteditable handles Enter, lists
+  // and Ctrl+B/I itself, so there is nothing else to intercept here.
+  if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) return;
+}
+
+// ---------- Vault editor ----------
+// Unlike the note editor this one has an explicit Save. A note saved half-typed
+// is a note you finish later; a password saved half-typed is a login you can no
+// longer use, and the old value is gone. So the write happens when you say so.
+function openVaultEditor(item) {
+  if (state.vaultState !== 'open') return drawVaultGate();
+  const row = item ? item.row : { title: '', url: '', username: '', password: '', notes: '', tags: [] };
+  state.vEditing = item || { kind: 'vault', id: null, row, tags: [], isNew: true };
+  state.vDraft = {
+    title: row.title || '', url: row.url || '', username: row.username || '',
+    password: row.password || '', notes: row.notes || '', tags: [...(row.tags || [])]
+  };
+  // A new login is almost always for the page you are on, so start it there.
+  if (!item && state.tabHost) {
+    state.vDraft.title = state.tabHost;
+    state.vDraft.url = 'https://' + state.tabHost;
   }
-  // Enter in a list carries the marker down; Enter on an empty marker ends the list.
-  if (e.key === 'Enter' && !e.shiftKey) {
-    const v = a.value, s0 = a.selectionStart;
-    const ls = v.lastIndexOf('\n', s0 - 1) + 1;
-    const m = v.slice(ls, s0).match(/^(\s*)(- \[[ xX]\] |[-*] |\d+[.)] )(.*)$/);
-    if (!m) return;
-    e.preventDefault();
-    if (!m[3].trim()) {
-      a.value = v.slice(0, ls) + v.slice(s0);
-      a.setSelectionRange(ls, ls);
-    } else {
-      let marker = m[2].replace(/\[[xX]\]/, '[ ]');
-      const num = marker.match(/^(\d+)([.)] )$/);
-      if (num) marker = (+num[1] + 1) + num[2];
-      const ins = '\n' + m[1] + marker;
-      a.value = v.slice(0, s0) + ins + v.slice(a.selectionEnd);
-      a.setSelectionRange(s0 + ins.length, s0 + ins.length);
-    }
-    state.draft.body = a.value;
-    queueSave();
-  }
+  drawVaultEditor();
+  $('#v-title')?.focus();
+}
+
+function closeVaultEditor() {
+  state.vEditing = null;
+  state.vDraft = null;
+  draw();
+  $('#q').focus();
+}
+
+function drawVaultEditor() {
+  const d = state.vDraft;
+  const pane = $('#detail');
+  pane.replaceChildren();
+
+  const field = (id, label, value, opts = {}) => {
+    const input = el(opts.multiline ? 'textarea' : 'input', {
+      id, value: opts.multiline ? null : value,
+      type: opts.type || 'text', autocomplete: 'off', spellcheck: 'false',
+      placeholder: opts.placeholder || ''
+    });
+    if (opts.multiline) input.value = value;
+    input.addEventListener('input', () => { d[opts.key] = input.value; });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); closeVaultEditor(); }
+      if (e.key === 'Enter' && !opts.multiline && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+    });
+    return el('div', {}, el('label', { for: id }, label), input);
+  };
+
+  const pw = el('input', { id: 'v-pass', type: 'password', value: d.password,
+    autocomplete: 'new-password', spellcheck: 'false', placeholder: 'Password' });
+  pw.addEventListener('input', () => { d.password = pw.value; });
+  pw.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); closeVaultEditor(); }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+  });
+
+  const save = safe(async () => {
+    if (!state.vaultKey) return drawVaultGate();
+    const item = state.vEditing;
+    const payload = { title: d.title.trim(), url: d.url.trim(), username: d.username,
+      password: d.password, notes: d.notes, tags: d.tags };
+    const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(payload));
+    if (item.id) await db.update('vault_items', item.id, { iv, ciphertext });
+    else await db.insert('vault_items', { iv, ciphertext });
+    toast('Saved (encrypted)');
+    state.vEditing = null; state.vDraft = null;
+    await loadVault();
+    $('#q').focus();
+  });
+
+  pane.append(
+    el('header', { class: 'd-band' },
+      el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }),
+        state.vEditing.isNew ? 'Vault · new login' : 'Vault · editing'),
+      (() => {
+        const t = el('input', { class: 't-in', id: 'v-title', value: d.title,
+          placeholder: 'Name, e.g. GitHub', 'aria-label': 'Name' });
+        t.addEventListener('input', () => { d.title = t.value; });
+        t.addEventListener('keydown', (e) => {
+          e.stopPropagation();
+          if (e.key === 'Escape') { e.preventDefault(); closeVaultEditor(); }
+        });
+        return t;
+      })()),
+    el('div', { class: 'v-form' },
+      field('v-url', 'Website', d.url, { key: 'url', placeholder: 'https://example.com' }),
+      field('v-user', 'Username or email', d.username, { key: 'username' }),
+      el('div', {},
+        el('label', { for: 'v-pass' }, 'Password'),
+        el('div', { class: 'v-row' },
+          el('div', { class: 'grow' }, pw),
+          el('button', { title: 'Show or hide', 'aria-label': 'Show or hide password',
+            onclick: () => { pw.type = pw.type === 'password' ? 'text' : 'password'; } }, icon('eye')),
+          el('button', { title: 'Generate', 'aria-label': 'Generate a password',
+            onclick: () => { pw.value = vaultCrypto.generatePassword(); d.password = pw.value; pw.type = 'text'; } },
+            icon('dice')))),
+      field('v-notes', 'Notes', d.notes, { key: 'notes', multiline: true })),
+    el('footer', { class: 'd-foot' },
+      el('button', { class: 'primary', onclick: save }, icon('check'), 'Save'),
+      el('button', { class: 'ghost', onclick: closeVaultEditor }, 'Cancel'),
+      el('span', { class: 'spacer' }),
+      state.vEditing.isNew ? null
+        : el('button', { class: 'ghost', title: 'Delete', 'aria-label': 'Delete',
+            onclick: safe(async () => {
+              await db.remove('vault_items', state.vEditing.id);
+              toast('Deleted');
+              state.vEditing = null; state.vDraft = null;
+              await loadVault();
+            }) }, icon('trash')))
+  );
 }
 
 // ---------- Vault ----------
@@ -1501,6 +1679,7 @@ async function writeRow(table, id, row) {
 // UI needs one of these and the brand mark is where people already look for it.
 const goHome = safe(async () => {
   if (state.editing) await closeEditor();       // saves the draft on its way out
+  if (state.vEditing) closeVaultEditor();
   if (state.screen) setScreen(null);
   $('#q').value = '';
   state.filter = 'all';

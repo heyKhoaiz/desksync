@@ -62,10 +62,13 @@ every Chrome profile and an Android app.
 - **Tags:** on all four types, not just notes. Rename, delete and colour live in Settings
   because they act on every item carrying the tag. Vault tags are stored inside the encrypted
   payload, never in a column
-- **Notes:** markdown (`format` column: `markdown`, or `html` for notes written before the
-  markdown editor, converted on first edit). Editor has a formatting toolbar, Write/Preview,
-  list continuation, and no Save button — a popup can be dismissed at any moment, so it
-  autosaves
+- **Notes:** stored as markdown (`format` column: `markdown`, or `html` for notes written
+  before it, converted on first edit). The editor is the rendered note, edited in place via
+  contenteditable: rendered with `md.render` on open, read back with `md.fromHtml` on every
+  change, so the stored format never depends on the browser's contenteditable quirks. No
+  Save button — a popup can be dismissed at any moment, so it autosaves
+- **Vault editor:** create and edit logins, with a generator and show/hide. Explicit Save,
+  unlike notes: a half-typed password overwrites a working one
 - **Read later:** save tab (button, `Alt+Shift+S`, right-click page/link), save all tabs, mark read, open
 - **Clipboard:** opt-in; content script captures copy/cut only on sites the user approved for capture (skips password fields), search, pin, copy back, save as note, manual "Save from clipboard"
 - **Vault:** create / unlock / lock, add & edit items, password generator, copy username/password, prefill from current tab

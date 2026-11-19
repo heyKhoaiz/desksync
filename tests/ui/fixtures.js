@@ -136,6 +136,12 @@ const db = {
     rejectUnknown(table, row);
     const full = { id: 'new-' + Math.random().toString(36).slice(2, 8), created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(), tags: [], ...row };
+    // _plain is the test's window into a vault row. The stored row keeps only iv
+    // and ciphertext, exactly as the real table does; this is decrypted beside it
+    // so assertions can read what was saved.
+    if (table === 'vault_items' && row.ciphertext) {
+      try { full._plain = JSON.parse(decodeURIComponent(escape(atob(row.ciphertext)))); } catch {}
+    }
     DATA[table].unshift(full); return full;
   },
   async update(table, id, patch) {

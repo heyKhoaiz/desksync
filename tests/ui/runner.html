@@ -39,9 +39,13 @@
         doc.body.querySelectorAll('script').forEach((s) => s.remove());
         document.body.insertAdjacentHTML('afterbegin', doc.body.innerHTML);
 
+        // Cache-busted for the same reason as the markup: a test run that
+        // silently loads yesterday's popup.js proves nothing.
+        const stamp = Date.now();
         const load = (src) => new Promise((res, rej) => {
           const s = document.createElement('script');
-          s.src = src; s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
+          s.src = src + '?t=' + stamp;
+          s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
           document.head.append(s);
         });
 
