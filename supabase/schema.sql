@@ -70,7 +70,7 @@ create table if not exists public.vault_items (
 
 -- ---------- updated_at trigger ----------
 create or replace function public.touch_updated_at() returns trigger
-language plpgsql as $$ begin new.updated_at = now(); return new; end $$;
+language plpgsql set search_path = '' as $$ begin new.updated_at = now(); return new; end $$;
 
 do $$
 declare t text;
@@ -92,7 +92,7 @@ begin
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format('create policy own_rows on public.%I for all
-                    using (user_id = auth.uid()) with check (user_id = auth.uid())', t);
+                    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
   end loop;
 end $$;
 
