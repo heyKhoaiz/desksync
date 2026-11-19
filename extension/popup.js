@@ -329,13 +329,14 @@ function matches(raw) {
 // The three things you come here to add. They used to be spread across the tabs.
 function actions() {
   const list = [
-    { action: 'tab',   title: 'Save this tab', where: state.tabHost || 'no page',
+    { action: 'tab',   icon: 'bookmark', title: 'Save this tab', where: state.tabHost || 'no page',
       sub: state.tabHost || 'No page to save', kbd: 'Alt+Shift+S', disabled: !state.tabHost },
-    { action: 'clip',  title: 'Save the clipboard', sub: 'Adds the clipboard as a clip' },
-    { action: 'note',  title: 'New note', sub: 'Start an empty note' }
+    { action: 'clip',  icon: 'clip', title: 'Save the clipboard', sub: 'Adds the clipboard as a clip' },
+    { action: 'note',  icon: 'plus', title: 'New note', sub: 'Start an empty note' }
   ];
   if (state.vaultState !== 'open') {
-    list.unshift({ action: 'vault', title: state.vaultState === 'setup' ? 'Set up your vault' : 'Unlock the vault',
+    list.unshift({ action: 'vault', icon: 'lock',
+      title: state.vaultState === 'setup' ? 'Set up your vault' : 'Unlock the vault',
       sub: 'Saved logins are hidden until you do' });
   }
   return list.map((a) => ({ ...a, kind: 'action', tags: [] }));
@@ -373,6 +374,12 @@ function draw() {
     if (group && group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
     list.append(rowFor(item, idx, text));
   });
+
+  const acts = list.querySelectorAll('.row.act');
+  if (acts.length) {
+    acts[0].classList.add('act-first');
+    acts[acts.length - 1].classList.add('act-last');
+  }
 
   if (state.active >= state.rows.length) state.active = 0;
   setActive(state.active, true);
@@ -450,7 +457,7 @@ function rowFor(item, idx, query) {
       class: 'row act', id: 'r' + idx, role: 'option', 'aria-selected': 'false', 'data-i': idx,
       onmousemove: () => hoverRow(idx), onclick: () => clickRow(idx)
     },
-      el('span', { class: 'bul' }),
+      icon(item.icon || 'plus'),
       el('span', { class: 't' }, item.title),
       item.where ? el('span', { class: 'where' }, item.where) : null,
       item.kbd ? el('span', { class: 'kbd' }, item.kbd) : null);

@@ -164,8 +164,16 @@ input, textarea, select { font: inherit; color: inherit; }
 .row[aria-selected="true"] .tg { background: var(--line); }
 .row .mark-i { color: var(--fg-2); opacity: .8; }
 .row.read .t, .row.locked .t { color: var(--fg-2); }
-.row.act { align-items: center; background: var(--hover); padding: 6px 10px; }
-.row.act .bul { background: var(--accent); margin-top: 0; }
+/* The capture actions read as one block of things you can do, not as four
+   separate pills: only the outer corners of the group are rounded. They carry an
+   icon rather than a coloured dot — a dot means "a saved thing of this type", so
+   reusing it here claimed every action was a note, the vault one included. */
+.row.act { align-items: center; background: var(--hover); padding: 6px 10px; border-radius: 0; }
+.row.act .i { width: 15px; height: 15px; color: var(--fg-2); }
+.row.act.act-first { border-radius: var(--r-row) var(--r-row) 0 0; }
+.row.act.act-last { border-radius: 0 0 var(--r-row) var(--r-row); margin-bottom: 2px; }
+.row.act.act-first.act-last { border-radius: var(--r-row); }
+.row.act[aria-selected="true"] .i, .row.act:hover .i { color: var(--fg); }
 .row.act .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.act .where { flex: none; max-width: 40%; font-size: 11.5px; color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
