@@ -417,20 +417,87 @@ const loadVault = safe(async () => {
   renderVault();
 });
 
+// Does a saved item belong to the site in the front tab?
+function hostMatches(itemUrl, tabHost) {
+  if (!tabHost || !itemUrl) return false;
+  let host;
+  try { host = new URL(/^https?:\/\//i.test(itemUrl) ? itemUrl : 'https://' + itemUrl).hostname.replace(/^www\./, ''); }
+  catch { return false; }
+  return host === tabHost || tabHost.endsWith('.' + host) || host.endsWith('.' + tabHost);
+}
+
 function renderVault() {
   const q = $('#vault-search').value.trim().toLowerCase();
   const items = state.vault.filter((v) => !q || [v.title, v.url, v.username].join(' ').toLowerCase().includes(q));
   const list = $('#vault-list'); list.replaceChildren();
   if (!items.length) return list.append(empty(q ? 'No matches' : 'Vault is empty — click New item'));
-  for (const v of items) {
-    list.append(el('li', { onclick: () => editVault(v) },
-      el('div', { class: 'tile' }, icon('key')),
-      el('div', { class: 'main' }, el('div', { class: 't' }, v.title || v.url || 'Untitled'),
-        el('div', { class: 's' }, v.username || '')),
-      el('div', { class: 'acts' },
-        el('button', { title: 'Copy username', 'aria-label': 'Copy username', onclick: safe((e) => { e.stopPropagation(); return copy(v.username || '', 'Username copied'); }) }, icon('user')),
-        el('button', { title: 'Copy password', 'aria-label': 'Copy password', onclick: safe((e) => { e.stopPropagation(); return copy(v.password || '', 'Password copied'); }) }, icon('key')))));
-  }
+  // Items for the site you're looking at come first, and only those can be filled.
+  const here = items.filter((v) => hostMatches(v.url, state.tabHost));
+  const rest = items.filter((v) => !here.includes(v));
+  if (here.length) list.append(el('li', { class: 'section' }, state.tabHost));
+  here.forEach((v) => list.append(vaultRow(v, true)));
+  if (here.length && rest.length) list.append(el('li', { class: 'section' }, 'All items'));
+  rest.forEach((v) => list.append(vaultRow(v, false)));
+}
+
+function vaultRow(v, canFill) {
+  return el('li', { onclick: () => editVault(v) },
+    el('div', { class: 'tile' }, icon('key')),
+    el('div', { class: 'main' }, el('div', { class: 't' }, v.title || v.url || 'Untitled'),
+      el('div', { class: 's' }, v.username || '')),
+    el('div', { class: 'acts' },
+      canFill ? el('button', { class: 'on', title: 'Fill this login on the page', 'aria-label': 'Fill this login on the page',
+        onclick: (e) => { e.stopPropagation(); fillItem(v); } }, icon('fill')) : null,
+      el('button', { title: 'Copy username', 'aria-label': 'Copy username', onclick: safe((e) => { e.stopPropagation(); return copy(v.username || '', 'Username copied'); }) }, icon('user')),
+      el('button', { title: 'Copy password', 'aria-label': 'Copy password', onclick: safe((e) => { e.stopPropagation(); return copy(v.password || '', 'Password copied'); }) }, icon('key'))));
+}
+
+// ---------- Autofill ----------
+// Runs in the page, in the extension's isolated world: it can reach the DOM but
+// shares nothing else with the page. Only ever injected by the click handler
+// below, into the tab in front, for an item saved for that site.
+function fillForm(username, password) {
+  const shown = (el) => el.getClientRects().length > 0 && !el.disabled && !el.readOnly;
+  // Frameworks track their own value, so go through the native setter and then
+  // announce the change the way a real keystroke would.
+  const setValue = (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+    if (setter) setter.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const inputs = [...document.querySelectorAll('input')].filter(shown);
+  const pw = inputs.find((i) => i.type === 'password');
+  // No usable password field means this isn't a login form, so fill nothing at all:
+  // typing a username into a newsletter box would be worse than doing nothing.
+  if (!pw) return { filled: 0, foundPassword: false };
+  // The username is looked for above the password only, nearest first, so a mailing-list
+  // field higher up the page doesn't win over the real one.
+  const before = inputs.slice(0, inputs.indexOf(pw)).filter((i) => /^(text|email|tel)$/.test(i.type));
+  const named = before.filter((i) =>
+    /user|email|login|account/i.test(`${i.name} ${i.id} ${i.autocomplete} ${i.getAttribute('aria-label') || ''}`));
+  const user = named[named.length - 1] || before[before.length - 1];
+  let filled = 0;
+  if (user && username) { setValue(user, username); filled++; }
+  if (password) { setValue(pw, password); filled++; pw.focus(); }
+  return { filled, foundPassword: true };
+}
+
+function fillItem(v) {
+  const { tabId, tabOrigin } = state;
+  if (!tabId || !tabOrigin) return toast('No page to fill');
+  // permissions.request only works inside the click's user gesture, so nothing is
+  // awaited before it. Filling a site is also what grants access to that site.
+  chrome.permissions.request({ origins: [tabOrigin] }).then(async (granted) => {
+    if (!granted) return toast('DeskSync needs access to this site to fill it');
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId }, func: fillForm, args: [v.username || '', v.password || '']
+    });
+    const r = res?.result;
+    if (!r?.foundPassword) return toast('No login form found on this page');
+    toast(r.filled > 1 ? 'Filled username and password' : 'Filled password');
+    setTimeout(() => window.close(), 700);
+  }).catch((e) => { console.error(e); toast(e.message || "Couldn't fill this page"); });
 }
 $('#vault-search').addEventListener('input', renderVault);
 
@@ -557,12 +624,27 @@ async function loadSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   $('#set-clip').checked = settings?.clipCapture ?? false;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  state.tabOrigin = /^https?:/.test(tab?.url || '') ? originFor(new URL(tab.url).hostname) : null;
+  const onPage = /^https?:/.test(tab?.url || '');
+  state.tabId = onPage ? tab.id : null;
+  state.tabHost = onPage ? new URL(tab.url).hostname.replace(/^www\./, '') : null;
+  state.tabOrigin = onPage ? originFor(new URL(tab.url).hostname) : null;
   await renderSites();
+  renderVault();   // the Fill action depends on which tab is in front
+}
+
+// Sites approved for clipboard capture. Kept apart from the extension's granted
+// origins because autofill asks for host access too, and being allowed to fill a
+// password on a site must not also start recording what you copy there.
+async function captureOrigins() {
+  const { captureOrigins } = await chrome.storage.local.get('captureOrigins');
+  if (captureOrigins) return captureOrigins;
+  const { origins = [] } = await chrome.permissions.getAll();   // upgrade from the old behaviour
+  await chrome.storage.local.set({ captureOrigins: origins });
+  return origins;
 }
 
 async function renderSites() {
-  const { origins = [] } = await chrome.permissions.getAll();
+  const origins = await captureOrigins();
   const list = $('#set-sites'); list.replaceChildren();
   if (!origins.length) list.append(empty('No approved sites yet'));
   for (const origin of origins) {
@@ -571,10 +653,15 @@ async function renderSites() {
       el('div', { class: 'main' }, el('div', { class: 't' }, hostOfOrigin(origin))),
       el('div', { class: 'acts' },
         el('button', { class: 'del', title: 'Stop capturing on this site', 'aria-label': 'Stop capturing on this site', onclick: safe(async () => {
-          await chrome.permissions.remove({ origins: [origin] }); renderSites(); }) }, icon('trash')))));
+          const left = (await captureOrigins()).filter((o) => o !== origin);
+          await chrome.storage.local.set({ captureOrigins: left });
+          await chrome.permissions.remove({ origins: [origin] });
+          renderSites();
+        }) }, icon('trash')))));
   }
   const btn = $('#set-allow');
   btn.disabled = !state.tabOrigin || origins.includes(state.tabOrigin);
+  state.captureOrigins = origins;
   btn.textContent = state.tabOrigin ? `Allow ${hostOfOrigin(state.tabOrigin)}` : 'Allow this site';
 }
 
@@ -584,7 +671,10 @@ $('#set-clip').addEventListener('change', safe(async (e) => {
 }));
 // permissions.request needs the click's user gesture, so nothing may be awaited before it.
 $('#set-allow').addEventListener('click', safe(async () => {
-  if (await chrome.permissions.request({ origins: [state.tabOrigin] })) { toast('Site approved'); renderSites(); }
+  if (!(await chrome.permissions.request({ origins: [state.tabOrigin] }))) return;
+  const origins = [...new Set([...(state.captureOrigins || []), state.tabOrigin])];
+  await chrome.storage.local.set({ captureOrigins: origins });
+  toast('Site approved'); renderSites();
 }));
 
 boot();

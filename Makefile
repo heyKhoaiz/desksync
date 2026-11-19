@@ -43,8 +43,9 @@ devices: ## List connected phones
 test: test-ext ## Run the extension tests, then the app's analysis and unit tests
 	cd mobile && flutter analyze && flutter test
 
-test-ext: ## Run the extension's offline-sync tests
+test-ext: ## Run the extension's offline-sync and autofill tests
 	@node tests/offline.test.js
+	@./tests/fillform.test.sh
 
 clean: ## Delete build output
 	rm -rf dist

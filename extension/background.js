@@ -8,6 +8,19 @@ async function getSettings() {
   return { ...DEFAULT_SETTINGS, ...(settings || {}) };
 }
 
+// Sites approved for clipboard capture. This is deliberately NOT "every origin the
+// extension was granted": autofill also asks for host access, and filling a password
+// on a site must never quietly start recording what you copy there.
+async function captureOrigins() {
+  const { captureOrigins } = await chrome.storage.local.get('captureOrigins');
+  if (captureOrigins) return captureOrigins;
+  // Upgrade from the version where granted origins were the capture list. On a
+  // fresh install there are none, so this seeds an empty list.
+  const { origins = [] } = await chrome.permissions.getAll();
+  await chrome.storage.local.set({ captureOrigins: origins });
+  return origins;
+}
+
 function badge(text, color = '#16a34a') {
   chrome.action.setBadgeBackgroundColor({ color });
   chrome.action.setBadgeText({ text });
@@ -86,8 +99,10 @@ async function handleClip(msg, sender) {
   if (!content || content === lastClip) return;
   let url;
   try { url = new URL(sender.url); } catch { return; }
-  // Tabs opened before a site was removed keep the script running, so re-check here.
+  // Tabs opened before a site was removed keep the script running, so re-check both
+  // the host permission and the capture list here.
   if (!(await chrome.permissions.contains({ origins: [`${url.protocol}//${url.hostname}/*`] }))) return;
+  if (!matchesAny(await captureOrigins(), url)) return;
   if (!(await currentUser())) return;
   lastClip = content;
   // Hostname only: full URLs can carry secrets such as reset tokens.
@@ -95,20 +110,30 @@ async function handleClip(msg, sender) {
   catch (e) { console.error('[DeskSync] clip', e); }
 }
 
-// The content script runs only on sites the user approved, and only while capture is on.
-// Granted host permissions are the allowlist.
+// Does a URL fall under one of our `*://*.host/*` match patterns?
+function matchesAny(origins, url) {
+  const host = url.hostname.replace(/^www\./, '');
+  return origins.some((o) => {
+    const pattern = o.replace(/^\*:\/\/(\*\.)?/, '').replace(/\/\*$/, '');
+    return host === pattern || host.endsWith('.' + pattern);
+  });
+}
+
+// The content script runs only on sites approved for capture, which have host
+// permission too, and only while capture is on.
 let captureSync = Promise.resolve();
 function syncCaptureScripts() {
   captureSync = captureSync.then(async () => {
     const { clipCapture } = await getSettings();
     const { origins = [] } = await chrome.permissions.getAll();
+    const approved = (await captureOrigins()).filter((o) => origins.includes(o));
     await chrome.scripting.unregisterContentScripts();
-    if (!clipCapture || !origins.length) return;
+    if (!clipCapture || !approved.length) return;
     await chrome.scripting.registerContentScripts([
-      { id: 'clip-capture', js: ['content.js'], matches: origins, runAt: 'document_idle', allFrames: false }
+      { id: 'clip-capture', js: ['content.js'], matches: approved, runAt: 'document_idle', allFrames: false }
     ]);
     // Already-open tabs would otherwise need a reload; content.js ignores repeat injection.
-    for (const tab of await chrome.tabs.query({ url: origins })) {
+    for (const tab of await chrome.tabs.query({ url: approved })) {
       chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }).catch(() => {});
     }
   }).catch((e) => console.error('[DeskSync] capture sync', e));
@@ -117,7 +142,7 @@ function syncCaptureScripts() {
 chrome.permissions.onAdded.addListener(syncCaptureScripts);
 chrome.permissions.onRemoved.addListener(syncCaptureScripts);
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.settings) syncCaptureScripts();
+  if (area === 'local' && (changes.settings || changes.captureOrigins)) syncCaptureScripts();
 });
 
 // ---------- Vault auto-lock, offline sync ----------

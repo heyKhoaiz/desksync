@@ -26,6 +26,7 @@
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4V4h11v1"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 20 1-4L16 5l3 3L8 19zM14 7l3 3"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></symbol>
+    <symbol id="i-fill" viewBox="0 0 24 24"><path d="M12 3v9M8.5 8.5 12 12l3.5-3.5M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
@@ -156,6 +157,15 @@
           <h3 class="section-title">Approved sites</h3>
           <ul id="set-sites" class="list static"></ul>
           <button id="set-allow" class="wide">Allow this site</button>
+          <p class="muted small note">Approving a site here only turns on clipboard capture for it.</p>
+          <div class="card row-card">
+            <div class="tile"><svg class="i"><use href="#i-fill"/></svg></div>
+            <div class="main">
+              <div class="t">Autofill</div>
+              <div class="s">In Vault, an item saved for the site you're on has a Fill button. Filling asks
+                for access to that site the first time, and never captures your clipboard there.</div>
+            </div>
+          </div>
           <div class="card row-card">
             <div class="tile"><svg class="i"><use href="#i-keyboard"/></svg></div>
             <div class="main">
