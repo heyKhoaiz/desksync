@@ -342,3 +342,10 @@ input, textarea, select { font: inherit; color: inherit; }
   background: var(--ink); color: var(--on-ink); font-size: 12px; z-index: 10; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* When Chrome gives us fewer CSS pixels than 780 (see fitToWindow in popup.js),
+   the list column gives width up first — a cramped detail pane is worse than a
+   cramped list. These must come after .mid's own width rule to win on source order. */
+@media (max-width: 740px) { .mid { width: 280px; } }
+@media (max-width: 660px) { .mid { width: 250px; } }
+@media (max-width: 580px) { .mid { width: 220px; } body { gap: 8px; padding: 8px; } }

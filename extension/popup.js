@@ -104,7 +104,29 @@ $('#auth-form').addEventListener('submit', safe(async (e) => {
     : await sb.auth.signInWithPassword({ email, password });
   if (error) { $('#auth-msg').textContent = error.message; return; }
   if (mode === 'signup' && !data.session) { $('#auth-msg').textContent = 'Check your email to confirm, then sign in.'; return; }
-  boot();
+  
+// ---------- Fitting Chrome's popup window ----------
+// Chrome caps a popup at 800x600 DEVICE pixels. At any browser zoom above 100%
+// that cap is fewer CSS pixels than our 780x560, so the document overflows the
+// window and the right-hand column and the bottom row get clipped.
+//
+// This cannot be expressed in CSS. vw/vh units are evaluated before Chrome has
+// decided the window size and can resolve against a viewport that does not exist
+// yet, which collapses the document and the popup never opens at all. Measuring
+// after layout is the only reliable way, so the size is applied here instead.
+function fitToWindow() {
+  const de = document.documentElement;
+  const w = de.clientWidth, h = de.clientHeight;
+  if (w) document.body.style.width = Math.min(780, w) + 'px';
+  if (h) document.body.style.height = Math.min(560, h) + 'px';
+}
+// Twice: removing the overflow gives the scrollbars' width back, which changes
+// clientWidth, so the second pass settles on the real figure.
+fitToWindow();
+requestAnimationFrame(fitToWindow);
+addEventListener('resize', fitToWindow);
+
+boot();
 }));
 
 // ---------- Offline ----------
@@ -1335,5 +1357,27 @@ function openActive(e) {
     return hostMatches(item.row.url, state.tabHost) ? fillItem(item.row) : copy(item.row.password || '', 'Password copied');
   }
 }
+
+
+// ---------- Fitting Chrome's popup window ----------
+// Chrome caps a popup at 800x600 DEVICE pixels. At any browser zoom above 100%
+// that cap is fewer CSS pixels than our 780x560, so the document overflows the
+// window and the right-hand column and the bottom row get clipped.
+//
+// This cannot be expressed in CSS. vw/vh units are evaluated before Chrome has
+// decided the window size and can resolve against a viewport that does not exist
+// yet, which collapses the document and the popup never opens at all. Measuring
+// after layout is the only reliable way, so the size is applied here instead.
+function fitToWindow() {
+  const de = document.documentElement;
+  const w = de.clientWidth, h = de.clientHeight;
+  if (w) document.body.style.width = Math.min(780, w) + 'px';
+  if (h) document.body.style.height = Math.min(560, h) + 'px';
+}
+// Twice: removing the overflow gives the scrollbars' width back, which changes
+// clientWidth, so the second pass settles on the real figure.
+fitToWindow();
+requestAnimationFrame(fitToWindow);
+addEventListener('resize', fitToWindow);
 
 boot();
