@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext app apk devices test clean check-env
+.PHONY: help env ext zip app apk devices test clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -21,6 +21,11 @@ ext: check-env ## Build the extension into dist/extension, ready for Load unpack
 	@rm -rf dist/extension && mkdir -p dist && cp -r extension dist/extension
 	@sed -i 's|https://YOUR-PROJECT.supabase.co|$(SUPABASE_URL)|; s|YOUR-ANON-KEY|$(SUPABASE_ANON_KEY)|' dist/extension/config.js
 	@echo "Built. In chrome://extensions use Load unpacked (first time) or reload on: $(CURDIR)/dist/extension"
+
+zip: ext ## Package the built extension as dist/desksync-extension.zip
+	@rm -f dist/desksync-extension.zip
+	@cd dist/extension && zip -qr ../desksync-extension.zip .
+	@echo "Zip: $(CURDIR)/dist/desksync-extension.zip"
 
 app: check-env ## Run the Android app on the connected phone
 	cd mobile && flutter run --dart-define-from-file=../.env
