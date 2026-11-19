@@ -10,6 +10,7 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 const state = {
+  theme: 'system',
   notes: [], later: [], clips: [], vault: [], trash: [],
   vaultKey: null, vaultState: 'locked',     // 'setup' | 'locked' | 'open'
   items: [], rows: [], active: 0,
@@ -77,12 +78,18 @@ async function boot() {
   $('#auth').classList.toggle('hidden', !!user);
   $('#app').classList.toggle('hidden', !user);
   if (!isConfigured) $('#auth-msg').textContent = 'Not configured: run make ext, then load dist/extension.';
-  if (!user) { $('#auth-email').focus(); return; }
+  if (!user) {
+    const { theme } = await chrome.storage.local.get('theme');
+    applyTheme(theme || 'system');
+    $('#auth-email').focus();
+    return;
+  }
   state.email = user.email;
   // Drops a previous account's cached rows and queued writes before showing anything.
   await cache.claim(user.id);
-  const { tagColors } = await chrome.storage.local.get('tagColors');
+  const { tagColors, theme } = await chrome.storage.local.get(['tagColors', 'theme']);
   state.tagColors = tagColors || {};
+  applyTheme(theme || 'system');
   await loadSettings();
   loadNotes(); loadLater(); loadClips();
   checkVault();
@@ -105,6 +112,38 @@ $('#auth-form').addEventListener('submit', safe(async (e) => {
   if (error) { $('#auth-msg').textContent = error.message; return; }
   if (mode === 'signup' && !data.session) { $('#auth-msg').textContent = 'Check your email to confirm, then sign in.'; return; }
   
+// ---------- Theme ----------
+// Three states, because "follow the OS" is the right default but not everyone
+// wants it: system -> light -> dark -> system. The icon shows the state you are
+// in, not the one you would move to, so the button reads as a status as well as
+// a control. Stored per device, like the tag colours.
+const THEMES = [
+  { key: 'system', icon: 'monitor', label: 'Theme: following your system' },
+  { key: 'light',  icon: 'sun',     label: 'Theme: light' },
+  { key: 'dark',   icon: 'moon',    label: 'Theme: dark' }
+];
+
+function applyTheme(key) {
+  const t = THEMES.find((x) => x.key === key) || THEMES[0];
+  // No attribute at all means the prefers-color-scheme rule is left in charge.
+  if (t.key === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t.key;
+
+  state.theme = t.key;
+  const btn = $('#theme');
+  btn.querySelector('use').setAttribute('href', '#i-' + t.icon);
+  const next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
+  btn.title = `${t.label} — click for ${next.key === 'system' ? 'system' : next.key}`;
+  btn.setAttribute('aria-label', btn.title);
+}
+
+$('#theme').addEventListener('click', safe(async () => {
+  const i = THEMES.findIndex((x) => x.key === state.theme);
+  const next = THEMES[(i + 1) % THEMES.length].key;
+  applyTheme(next);
+  await chrome.storage.local.set({ theme: next });
+}));
+
 // ---------- Fitting Chrome's popup window ----------
 // Chrome caps a popup at 800x600 DEVICE pixels. At any browser zoom above 100%
 // that cap is fewer CSS pixels than our 780x560, so the document overflows the
@@ -1358,6 +1397,38 @@ function openActive(e) {
   }
 }
 
+
+// ---------- Theme ----------
+// Three states, because "follow the OS" is the right default but not everyone
+// wants it: system -> light -> dark -> system. The icon shows the state you are
+// in, not the one you would move to, so the button reads as a status as well as
+// a control. Stored per device, like the tag colours.
+const THEMES = [
+  { key: 'system', icon: 'monitor', label: 'Theme: following your system' },
+  { key: 'light',  icon: 'sun',     label: 'Theme: light' },
+  { key: 'dark',   icon: 'moon',    label: 'Theme: dark' }
+];
+
+function applyTheme(key) {
+  const t = THEMES.find((x) => x.key === key) || THEMES[0];
+  // No attribute at all means the prefers-color-scheme rule is left in charge.
+  if (t.key === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t.key;
+
+  state.theme = t.key;
+  const btn = $('#theme');
+  btn.querySelector('use').setAttribute('href', '#i-' + t.icon);
+  const next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
+  btn.title = `${t.label} — click for ${next.key === 'system' ? 'system' : next.key}`;
+  btn.setAttribute('aria-label', btn.title);
+}
+
+$('#theme').addEventListener('click', safe(async () => {
+  const i = THEMES.findIndex((x) => x.key === state.theme);
+  const next = THEMES[(i + 1) % THEMES.length].key;
+  applyTheme(next);
+  await chrome.storage.local.set({ theme: next });
+}));
 
 // ---------- Fitting Chrome's popup window ----------
 // Chrome caps a popup at 800x600 DEVICE pixels. At any browser zoom above 100%
