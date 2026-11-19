@@ -163,6 +163,31 @@ input, textarea, select { font: inherit; color: inherit; }
 .row .tg { font-size: 11px; background: var(--hover); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
 .row[aria-selected="true"] .tg { background: var(--line); }
 .row .mark-i { color: var(--fg-2); opacity: .8; }
+
+/* Shown on hover and on the selected row only. Kept out of the flow so the row
+   does not reflow when they appear, and faded over the row's own background so
+   a long title slides under them rather than colliding. */
+.row-acts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 1px; padding-left: 16px; opacity: 0; pointer-events: none;
+  transition: opacity var(--fade);
+  background: linear-gradient(90deg, transparent, var(--hover) 16px); }
+.row[aria-selected="true"] .row-acts {
+  background: linear-gradient(90deg, transparent, var(--sel) 16px); }
+.row:hover .row-acts, .row[aria-selected="true"] .row-acts,
+.row:focus-within .row-acts { opacity: 1; pointer-events: auto; }
+/* The pinned/phone markers sit where the actions appear, so they step aside. */
+.row:hover .mark-i, .row[aria-selected="true"] .mark-i,
+.row:focus-within .mark-i { opacity: 0; }
+.row .mark-i { transition: opacity var(--fade); }
+.row-acts button { width: 24px; height: 24px; border-radius: 7px; display: grid;
+  place-items: center; color: var(--fg-2); }
+.row-acts button .i { width: 15px; height: 15px; }
+.row-acts button:hover { background: var(--line); color: var(--fg); }
+.row-acts button[data-row-act="delete"]:hover { color: var(--danger); }
+/* The row has to be the positioning context, and tall enough not to clip them. */
+.row { position: relative; }
+/* An action row is a button already; it needs none of this. */
+.row.act .row-acts { display: none; }
 .row.read .t, .row.locked .t { color: var(--fg-2); }
 /* The capture actions read as one block of things you can do, not as four
    separate pills: only the outer corners of the group are rounded. They carry an

@@ -530,7 +530,45 @@ function rowFor(item, idx, query) {
         }, '#' + t)),
         ...highlight(sub, query))),
     item.pinned ? el('span', { class: 'mark-i' }, icon('pin')) : null,
-    item.row?.source === 'android' ? el('span', { class: 'mark-i', title: 'Saved from your phone' }, icon('phone')) : null);
+    item.row?.source === 'android' ? el('span', { class: 'mark-i', title: 'Saved from your phone' }, icon('phone')) : null,
+    rowActions(item));
+}
+
+
+// The two things you do to a row without wanting to read it first. They appear
+// on hover and on the selected row, so a quiet list stays quiet: showing them on
+// every row would put forty buttons on screen and make delete easy to hit by
+// accident. The detail pane keeps the full set.
+function rowActions(item) {
+  const stop = (fn) => safe(async (e) => { e.stopPropagation(); await fn(); });
+  const kids = [];
+
+  if (item.kind === 'note' || item.kind === 'clip') {
+    kids.push(el('button', {
+      title: item.pinned ? 'Unpin' : 'Pin', 'aria-label': item.pinned ? 'Unpin' : 'Pin',
+      'data-row-act': 'pin', onclick: stop(() => togglePin(item))
+    }, icon('pin')));
+  }
+  if (item.kind === 'link') {
+    kids.push(el('button', {
+      title: item.row.is_read ? 'Mark unread' : 'Mark read',
+      'aria-label': item.row.is_read ? 'Mark unread' : 'Mark read',
+      'data-row-act': 'read', onclick: stop(() => toggleRead(item))
+    }, icon(item.row.is_read ? 'undo' : 'check')));
+  }
+  if (item.kind === 'vault') {
+    kids.push(el('button', {
+      title: 'Copy password', 'aria-label': 'Copy password',
+      'data-row-act': 'copy', onclick: stop(() => copy(item.row.password || '', 'Password copied'))
+    }, icon('key')));
+  }
+
+  kids.push(el('button', {
+    title: 'Delete', 'aria-label': 'Delete ' + item.title,
+    'data-row-act': 'delete', onclick: stop(() => remove(item))
+  }, icon('trash')));
+
+  return el('span', { class: 'row-acts' }, ...kids);
 }
 
 function hoverRow(i) { if (!state.editing && i !== state.active) setActive(i, false); }
@@ -944,14 +982,38 @@ function readBack() {
 }
 
 function queueSave() {
-  const el2 = $('#ed-saved');
-  if (el2) el2.textContent = 'Saving…';
+  saveState('Saving…');
   clearTimeout(queueSave._t);
   queueSave._t = setTimeout(() => flushDraft(false), 700);
 }
 
-const flushDraft = safe(async (final, itemOverride) => {
+function saveState(text) {
+  const el2 = $('#ed-saved');
+  if (el2) el2.textContent = text;
+}
+
+// Saves run one at a time, in order.
+//
+// They used to run concurrently, and for a new note that meant two saves could
+// both see a row with no id yet and both insert: one note typed, two rows
+// written, and later keystrokes landing in whichever row won. It only appeared
+// against a real server, because a save that returns instantly cannot overlap
+// the next one.
+let saveQueue = Promise.resolve();
+
+function flushDraft(final, itemOverride) {
   clearTimeout(queueSave._t);
+  saveQueue = saveQueue.then(() => writeDraft(final, itemOverride)).catch((e) => {
+    console.error(e);
+    // Never leave the label claiming a save is still running: it is not, and the
+    // note exists only in this popup, which is about to close.
+    saveState('Not saved');
+    toast(e?.message || 'Could not save this note');
+  });
+  return saveQueue;
+}
+
+async function writeDraft(final, itemOverride) {
   const item = itemOverride || state.editing;
   if (!item || !state.draft) return;
   readBack();
@@ -962,16 +1024,15 @@ const flushDraft = safe(async (final, itemOverride) => {
   if (item.isNew && !title.trim() && !body.trim()) { if (final) state.draft = null; return; }
 
   const row = { title: title.trim(), body, format: 'markdown', tags };
-  const saved_row = await writeRow('notes', item.id, row);
+  const written = await writeRow('notes', item.id, row);
   if (!item.id) {
-    item.id = saved_row?.id ?? item.id;
+    item.id = written?.id ?? item.id;
     item.isNew = false;
   }
-  const saved = $('#ed-saved');
-  if (saved) saved.textContent = 'Saved';
+  saveState('Saved');
   if (final) state.draft = null;
   loadNotes();
-});
+}
 
 // Returns the block element the caret sits in, within the note.
 function currentBlock() {

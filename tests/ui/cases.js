@@ -367,6 +367,76 @@
     document.getElementById('home').click();
     await wait(80);
 
+    // ================= A SLOW SERVER =================
+    // The fixtures answer instantly, which hid a race for two weeks: two saves
+    // of a brand new note could both see a row with no id and both insert it.
+    group('saving against a slow server');
+    await reset();
+
+    const realInsert = db.insert.bind(db);
+    let insertCalls = 0;
+    db.insert = async (t, row) => { insertCalls++; await wait(600); return realInsert(t, row); };
+
+    const noteCountBefore = window.__DATA.notes.length;
+    act('New note').click();
+    await wait(60);
+    editorType('first burst');
+    await wait(SAVE_DEBOUNCE + 60);          // the insert is now in flight
+    editorType('second burst');
+    await wait(2200);
+    db.insert = realInsert;
+
+    eq('a new note is inserted once, however fast you type',
+      window.__DATA.notes.length - noteCountBefore, 1);
+    eq('and the later keystrokes land in that row', window.__DATA.notes[0].body, 'second burst');
+    eq('the save label settles', document.getElementById('ed-saved')?.textContent, 'Saved');
+    document.getElementById('home').click();
+    await wait(120);
+
+    // A failing save must not leave the label claiming it is still working.
+    await reset();
+    await openNoteEditor('Grocery');
+    const realUpdate = db.update.bind(db);
+    db.update = async () => { throw new Error('server said no'); };
+    editorType('doomed');
+    await wait(SAVE_DEBOUNCE + 400);
+    db.update = realUpdate;
+    eq('a failed save says so', document.getElementById('ed-saved')?.textContent, 'Not saved');
+    document.getElementById('home').click();
+    await wait(200);
+
+    // ================= ROW ACTIONS =================
+    group('row actions');
+    await reset();
+
+    const firstRow = $$('#list .row:not(.act)')[0];
+    ok('a row carries its own actions', !!firstRow.querySelector('.row-acts'));
+    ok('they are hidden until the row is hovered or selected',
+      getComputedStyle($$('#list .row:not(.act)')[1].querySelector('.row-acts')).opacity === '0',
+      getComputedStyle($$('#list .row:not(.act)')[1].querySelector('.row-acts')).opacity);
+
+    const noteRow = rowFor('Launch checklist');
+    const wasPinned = window.__DATA.notes.find((n) => n.id === 'n1').pinned;
+    noteRow.querySelector('[data-row-act=pin]').click();
+    await wait(150);
+    ok('the pin action works without opening the row',
+      window.__DATA.notes.find((n) => n.id === 'n1').pinned !== wasPinned,
+      window.__DATA.notes.find((n) => n.id === 'n1').pinned);
+
+    const linkRow = rowFor('Migrate to Manifest V3');
+    linkRow.querySelector('[data-row-act=read]').click();
+    await wait(150);
+    ok('a link can be marked read from the list',
+      window.__DATA.read_later.find((r) => r.id === 'l1').is_read === true);
+
+    const notesBeforeDelete = window.__DATA.notes.length;
+    rowFor('Grocery').querySelector('[data-row-act=delete]').click();
+    await wait(200);
+    eq('and deleted from the list', window.__DATA.notes.length, notesBeforeDelete - 1);
+
+    ok('an action row has none of them', !act('New note').querySelector('.row-acts') ||
+      getComputedStyle(act('New note').querySelector('.row-acts')).display === 'none');
+
     // ================= RESILIENCE =================
     group('a database behind the code');
     await reset();
