@@ -66,7 +66,10 @@ every Chrome profile and an Android app.
   before it, converted on first edit). The editor is the rendered note, edited in place via
   contenteditable: rendered with `md.render` on open, read back with `md.fromHtml` on every
   change, so the stored format never depends on the browser's contenteditable quirks. No
-  Save button — a popup can be dismissed at any moment, so it autosaves
+  Save button — a popup can be dismissed at any moment, so it autosaves. No Edit button
+  either: selecting a note shows it ready to type in, since the pane renders it the same
+  either way. Focus stays in the search field until you click into the note or press Enter,
+  so the list still arrows. Selecting without typing does not write
 - **Vault editor:** create and edit logins, with a generator and show/hide. Explicit Save,
   unlike notes: a half-typed password overwrites a working one
 - **Read later:** save tab (button, `Alt+Shift+S`, right-click page/link), save all tabs, mark read, open

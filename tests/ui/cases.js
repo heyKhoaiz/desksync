@@ -74,11 +74,12 @@
     await wait(120);
   };
 
+  // Selecting a note is all it takes now: the pane renders it ready to type in.
   const openNoteEditor = async (title) => {
     rowFor(title).click();
-    await wait(30);
-    document.querySelector('.d-foot .primary').click();   // Edit
-    await wait(30);
+    await wait(140);
+    document.getElementById('ed-area')?.focus();
+    await wait(20);
   };
 
   // The editor is contenteditable now, so "typing" means replacing its content
@@ -244,22 +245,31 @@
     // ================= NOTES: RENDERING =================
     group('notes — rendering');
     await reset();
+    // A note renders into the editing surface; there is no separate read view.
     rowFor('Launch checklist').click();
-    await wait(20);
-    const md1 = document.querySelector('.d-body .md').innerHTML;
+    await wait(140);
+    const md1 = document.getElementById('ed-area').innerHTML;
     ok('markdown renders task boxes', /class="tasks"/.test(md1));
     ok('markdown renders a blockquote', /<blockquote>/.test(md1), md1.slice(-160));
     ok('markdown renders a link', /<a href="https:\/\//.test(md1));
 
     rowFor('Old rich-text note').click();
-    await wait(20);
-    const md2 = document.querySelector('.d-body .md').innerHTML;
+    await wait(140);
+    const md2 = document.getElementById('ed-area').innerHTML;
     ok('a pre-markdown note still renders', /<strong>old<\/strong>/.test(md2), md2.slice(0, 120));
     ok('its list survives', /<ul><li>first<\/li>/.test(md2), md2);
 
     // ================= NOTES: EDITOR =================
     group('notes \u2014 editor');
     await openNoteEditor('Old rich-text note');
+    ok('selecting a note is enough: there is no Edit step',
+      !$$('.d-foot button, .ed-foot button').some((b) => /^Edit$/.test(b.textContent.trim())),
+      $$('.ed-foot button').map((b) => b.textContent.trim()));
+    ok('and no Done button to dismiss it with',
+      !$$('.ed-foot button').some((b) => /^Done$/.test(b.textContent.trim())),
+      $$('.ed-foot button').map((b) => b.textContent.trim()));
+    ok('the note is editable the moment it is shown',
+      document.getElementById('ed-area')?.getAttribute('contenteditable') === 'true');
     ok('the editor shows the note formatted, not its markup',
       /<strong>old<\/strong>/.test(document.getElementById('ed-area').innerHTML),
       document.getElementById('ed-area').innerHTML.slice(0, 120));
@@ -402,6 +412,45 @@
     eq('and any box can still be ticked',
       editorMarkdown(), '- [ ] milk\n- [x] bread\n- [ ] eggs\n\nafter the list');
 
+    // The toolbar has to say what applies where the caret is, or it is
+    // write-only: you can switch bold on, but nothing tells you it is on.
+    const pressed = (k) => document.querySelector(`[data-tool="${k}"]`)?.getAttribute('aria-pressed');
+    const caretInto = (node) => {
+      const r2 = document.createRange();
+      r2.selectNodeContents(node);
+      r2.collapse(false);
+      const sel2 = getSelection();
+      sel2.removeAllRanges(); sel2.addRange(r2);
+      document.dispatchEvent(new Event('selectionchange'));
+    };
+
+    editorType('<p>plain</p><p><b>bold text</b></p><h2>a heading</h2>' +
+      '<blockquote>a quote</blockquote><ul><li>a bullet</li></ul>' +
+      '<ul class="tasks"><li><span class="box" contenteditable="false"></span><span>a task</span></li></ul>');
+
+    caretInto(ed.querySelector('p'));
+    eq('nothing is lit in a plain paragraph', pressed('bold'), 'false');
+    eq('and no block tool either', pressed('h'), 'false');
+
+    caretInto(ed.querySelector('b'));
+    eq('bold text lights the bold button', pressed('bold'), 'true');
+
+    caretInto(ed.querySelector('h2'));
+    eq('a heading lights the heading button', pressed('h'), 'true');
+
+    caretInto(ed.querySelector('blockquote'));
+    eq('a quote lights the quote button', pressed('quote'), 'true');
+    eq('and not the heading button', pressed('h'), 'false');
+
+    caretInto(ed.querySelector('ul:not(.tasks) li'));
+    eq('a bullet lights the bullet button', pressed('ul'), 'true');
+    eq('a plain list is not a task list', pressed('task'), 'false');
+
+    caretInto(ed.querySelector('ul.tasks li span:last-child'));
+    eq('a task lights the task button', pressed('task'), 'true');
+    ok('and not the bullet button, though a task list is a <ul>',
+      pressed('ul') === 'false', pressed('ul'));
+
     document.getElementById('home').click();
     await wait(150);
 
@@ -496,9 +545,10 @@
 
     await openNoteEditor('Grocery');
     editorType('DONE-PATH');
-    document.querySelector('.ed-foot .primary').click();
+    document.getElementById('detail').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await settled();
-    eq('Done saves what was typed inside the debounce', note('Grocery').body, 'DONE-PATH');
+    eq('leaving saves what was typed inside the debounce', note('Grocery').body, 'DONE-PATH');
 
     await openNoteEditor('Grocery');
     editorType('LOGO-PATH');
@@ -542,6 +592,30 @@
     document.getElementById('home').click();
     await wait(80);
 
+    // ================= SELECTING IS NOT EDITING =================
+    group('selecting a note');
+    await reset();
+
+    const stamp = note('Grocery').updated_at;
+    let writes = 0;
+    const realUpdate2 = db.update.bind(db);
+    db.update = async (...a2) => { writes++; return realUpdate2(...a2); };
+
+    rowFor('Grocery').click();
+    await wait(140);
+    eq('focus stays in the search field, so the list still arrows',
+      document.activeElement.id, 'q');
+    ok('the note is in the pane, ready to type in', !!document.getElementById('ed-area'));
+
+    rowFor('Launch checklist').click();
+    await settled();
+    db.update = realUpdate2;
+    eq('moving on does not rewrite a note you only looked at', writes, 0);
+    eq('so its timestamp is untouched', note('Grocery').updated_at, stamp);
+
+    document.getElementById('home').click();
+    await wait(150);
+
     // ================= A SLOW SERVER =================
     // The fixtures answer instantly, which hid a race for two weeks: two saves
     // of a brand new note could both see a row with no id and both insert it.
@@ -564,7 +638,8 @@
     eq('a new note is inserted once, however fast you type',
       window.__DATA.notes.length - noteCountBefore, 1);
     eq('and the later keystrokes land in that row', window.__DATA.notes[0].body, 'second burst');
-    eq('the save label settles', document.getElementById('ed-saved')?.textContent, 'Saved');
+    eq('the save label settles',
+      document.getElementById('ed-saved')?.textContent ?? '(the editor closed)', 'Saved');
     document.getElementById('home').click();
     await wait(120);
 
@@ -738,7 +813,7 @@
     group('read later');
     await reset();
     rowFor('Migrate to Manifest V3').click();
-    await wait(20);
+    await wait(140);
     ok('the detail pane shows the link', /developer\.chrome\.com/.test(document.querySelector('.d-body').textContent));
     $$('.d-foot button').find((b) => /Mark read/.test(b.textContent)).click();
     await wait(80);
@@ -748,19 +823,25 @@
     group('clipboard');
     await reset();
     rowFor('Rosewood').click();
-    await wait(20);
+    await wait(140);
     const clipText = window.__DATA.clips.find((c) => c.id === 'c3').content;
     $$('.d-foot button').find((b) => /As note/.test(b.textContent)).click();
     await wait(120);
     ok('a clip can become a note',
       window.__DATA.notes.some((n) => n.body === clipText), window.__DATA.notes.map((n) => n.title));
 
+    // "As note" just made a note whose title starts with the same text, so the
+    // clip has to be picked out by type rather than by what the row says.
+    document.querySelector('.rail [data-f=clip]').click();
+    await wait(140);
     rowFor('Rosewood').click();
-    await wait(20);
+    await wait(140);
     $$('.d-foot button').find((b) => b.getAttribute('title') === 'Delete').click();
-    await wait(120);
+    await wait(140);
     ok('deleting a clip erases its text instead of trashing it',
       !window.__DELETED.clips?.length, window.__DELETED.clips);
+    document.querySelector('.rail [data-f=all]').click();
+    await wait(60);
 
     // ================= VAULT =================
     group('vault');
@@ -782,7 +863,7 @@
     ok('unlocking lists the saved logins', rowTitles().includes('GitHub'), rowTitles());
 
     rowFor('GitHub').click();
-    await wait(20);
+    await wait(140);
     ok('the password is masked until asked for',
       document.getElementById('vpw').textContent.startsWith('•'), document.getElementById('vpw').textContent);
     $$('.d-foot button').find((b) => /Show/.test(b.textContent)).click();
@@ -853,11 +934,13 @@
     setScreen('settings');
     await wait(30);
     document.getElementById('home').click();
-    await wait(80);
+    await wait(250);          // leaving a note saves first, so this is not instant
     eq('it clears the search', q().value, '');
     ok('it drops the type filter and tags', /Everything/.test(head()), head());
     ok('it closes the screen', document.getElementById('screen').hidden);
     eq('and puts focus back in the search field', document.activeElement.id, 'q');
+    ok('selecting the unlock row does not steal the cursor into the password field',
+      document.activeElement.id === 'q', document.activeElement.id || document.activeElement.tagName);
 
     // ================= LAYOUT =================
     group('layout');

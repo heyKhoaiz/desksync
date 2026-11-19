@@ -411,7 +411,7 @@ function draw() {
 
   if (!state.rows.length) {
     list.append(emptyRow(text, tags));
-    if (!state.editing && !state.vEditing) drawDetail(null);
+    showInPane(null);
     return;
   }
 
@@ -431,6 +431,14 @@ function draw() {
     acts[acts.length - 1].classList.add('act-last');
   }
 
+  // Saving a note reorders the list by updated_at, and inserting one adds a row
+  // above it. The selection is an index, so it would quietly come to rest on a
+  // different note and close the editor out from under whoever was typing.
+  // Follow the note being edited instead.
+  if (state.editing && state.editing.id) {
+    const here = state.rows.findIndex((r) => r.kind === 'note' && r.id === state.editing.id);
+    if (here > -1) state.active = here;
+  }
   if (state.active >= state.rows.length) state.active = 0;
   setActive(state.active, true);
 }
@@ -585,13 +593,18 @@ async function clickRow(i) {
   // Selecting it and making you click "Do it" in the other pane read as nothing
   // happening at all, which is exactly how "New note" felt.
   const item = state.rows[i];
-  if (item && item.kind === 'action') { runRow(item); return; }
+  if (item && item.kind === 'action') {
+    // setActive queued a pane update for the action row. Let it finish, or it
+    // lands after the editor opens and paints over it.
+    await paneQueue;
+    return runRow(item);
+  }
   $('#q').focus();
 }
 
 // Shared by Enter and by clicking an action row.
 function runRow(item) {
-  if (item.action === 'vault') return drawVaultGate();
+  if (item.action === 'vault') return drawVaultGate({ focus: true });
   if (item.action === 'login') return openVaultEditor(null);
   if (item.disabled) return toast(item.action === 'tab' ? "Can't save this page" : 'Not available here');
   runAction(item.action);
@@ -607,7 +620,31 @@ function setActive(i, scroll) {
   row.setAttribute('aria-selected', 'true');
   q.setAttribute('aria-activedescendant', 'r' + i);
   if (scroll) row.scrollIntoView({ block: 'nearest' });
-  if (!state.editing) drawDetail(state.rows[i]);
+  if (!state.vEditing) showInPane(state.rows[i]);
+}
+
+// A note has no read-only state: the pane renders it the same either way, so an
+// Edit button was a click that changed nothing you could see. Selecting a note
+// puts it in the pane ready to type in; focus stays in the search field until
+// you click into the note or press Enter, so arrowing through the list still
+// works as a list.
+//
+// Switches are serialized for the same reason saves are: leaving a note writes
+// it, and starting the next one before that finished used to clear the editor
+// out from under itself.
+let paneQueue = Promise.resolve();
+
+function showInPane(item) {
+  paneQueue = paneQueue.then(async () => {
+    const editing = state.editing;
+    if (editing && item?.kind === 'note' && item.id && editing.id === item.id) return;  // already open
+    if (editing) await closeEditor({ redraw: false, keepWidth: item?.kind === 'note' });
+    if (!item) return drawDetail(null);
+    if (item.kind === 'note') return openEditor(item, false);
+    applyEditorWidth(false);
+    drawDetail(item);
+  }).catch((e) => console.error(e));
+  return paneQueue;
 }
 
 function setFilter(f) {
@@ -685,13 +722,7 @@ function detailBody(item) {
 function detailFoot(item) {
   const del = el('button', { class: 'ghost', title: 'Delete', 'aria-label': 'Delete', onclick: safe(() => remove(item)) }, icon('trash'));
 
-  if (item.kind === 'note') {
-    return [
-      el('button', { class: 'primary', onclick: () => openEditor(item) }, icon('edit'), 'Edit'),
-      el('button', { class: 'ghost', onclick: safe(() => togglePin(item)) }, icon('pin'), item.pinned ? 'Unpin' : 'Pin'),
-      el('span', { class: 'spacer' }), del
-    ];
-  }
+
   if (item.kind === 'link') {
     return [
       el('button', { class: 'primary', onclick: safe(() => openLink(item)) }, icon('open'), 'Open'),
@@ -922,18 +953,19 @@ function newNote() {
   openEditor({ kind: 'note', id: null, row, title: '', sub: '', tags: [], when: null, isNew: true });
 }
 
-function openEditor(item) {
+function openEditor(item, focus = true) {
   state.editing = item;
   // Converted once, on open: a note written before the markdown editor becomes
   // markdown here and is saved that way from now on.
-  state.draft = { title: item.row.title || '', body: md.toMarkdown(item.row), tags: [...item.tags] };
+  state.draft = { title: item.row.title || '', body: md.toMarkdown(item.row), tags: [...item.tags], dirty: false };
   drawEditor();
-  focusEditor();
+  if (focus) focusEditor();
 }
 
 function focusEditor() {
   const a = $('#ed-area');
   if (!a) return;
+  setTimeout(syncTools, 0);
   a.focus();
   // Caret to the end, so typing continues the note rather than overwriting it.
   const r = document.createRange();
@@ -944,7 +976,7 @@ function focusEditor() {
   sel.addRange(r);
 }
 
-const closeEditor = safe(async () => {
+const closeEditor = safe(async (opts = {}) => {
   const item = state.editing;
   if (!item) return;
   // Save before clearing state.editing, not after: anything typed inside the
@@ -952,7 +984,8 @@ const closeEditor = safe(async () => {
   // note it belongs to. Clearing first lost the last few seconds of typing.
   await flushDraft(true, item);
   state.editing = null;
-  applyEditorWidth(false);
+  if (opts.keepWidth !== true) applyEditorWidth(false);
+  if (opts.redraw === false) return;
   draw();
   $('#q').focus();
 });
@@ -990,6 +1023,7 @@ function drawEditor() {
         ? el('span', { class: 'sep' })
         : el('button', {
             class: t.cls, title: t.label, 'aria-label': t.label, 'data-tool': t.k,
+            'aria-pressed': 'false',
             // mousedown, not click: the selection in the note must survive being
             // formatted, and clicking a button would move focus first.
             onmousedown: (e) => { e.preventDefault(); applyTool(t.k); }
@@ -1019,7 +1053,10 @@ function drawEditor() {
     'data-placeholder': 'Write your note…'
   });
   body.innerHTML = md.render(state.draft.body);
-  body.addEventListener('input', () => { readBack(); queueSave(); });
+  body.addEventListener('input', () => { readBack(); queueSave(); syncTools(); });
+  body.addEventListener('keyup', syncTools);
+  body.addEventListener('mouseup', syncTools);
+  body.addEventListener('focus', syncTools);
   body.addEventListener('keydown', editorKeys);
   // A task box is a control, not text: clicking one ticks it off.
   body.addEventListener('click', (e) => {
@@ -1039,10 +1076,15 @@ function drawEditor() {
     tagRow({ ...item, tags: state.draft.tags, row: item.row, kind: 'note' }),
     el('div', { class: 'ed' }, bar, body),
     el('footer', { class: 'ed-foot' },
-      el('button', { class: 'primary', onclick: closeEditor }, 'Done'),
+      el('button', { class: 'ghost', onclick: safe(() => togglePin(item)) },
+        icon('pin'), item.pinned ? 'Unpin' : 'Pin'),
       el('span', { class: 'saved', id: 'ed-saved' }, 'Saved'),
       el('span', { class: 'spacer' }),
-      el('span', { class: 'hint' }, '⌘↵ done · esc back'))
+      el('span', { class: 'hint' }, 'esc → list'),
+      item.isNew ? null
+        : el('button', { class: 'ghost', title: 'Delete', 'aria-label': 'Delete',
+            onclick: safe(async () => { const it = state.editing; await closeEditor({ redraw: false }); await remove(it); }) },
+            icon('trash')))
   );
 
   // Esc and Cmd+Enter work anywhere in the pane, including from a tag input.
@@ -1062,6 +1104,7 @@ function readBack() {
 }
 
 function queueSave() {
+  if (state.draft) state.draft.dirty = true;
   saveState('Saving…');
   clearTimeout(queueSave._t);
   queueSave._t = setTimeout(() => flushDraft(false), 700);
@@ -1096,6 +1139,9 @@ function flushDraft(final, itemOverride) {
 async function writeDraft(final, itemOverride) {
   const item = itemOverride || state.editing;
   if (!item || !state.draft) return;
+  // Nothing typed, nothing to write: opening a note and moving on used to save
+  // it anyway, which bumped its timestamp and moved it up the list.
+  if (!state.draft.dirty) { if (final) state.draft = null; return; }
   readBack();
 
   const { title, body, tags } = state.draft;
@@ -1165,17 +1211,43 @@ function caretTo(node) {
 //
 // The nodes are moved into the paragraph rather than copied, so the caret, which
 // points at one of them, comes along and the cursor does not jump.
+// If the caret is not in the note — focus was elsewhere, or the note was just
+// replaced — a block tool has nothing to act on and would add an empty item
+// beside the text instead of changing it. Fall back to the end of the note,
+// which is where someone pressing a formatting button means to be.
+function ensureCaret() {
+  const a = $('#ed-area');
+  if (!a) return;
+  const anchor = getSelection()?.anchorNode;
+  if (anchor && a.contains(anchor)) return;
+  if (!a.lastChild) a.append(document.createElement('p'));
+  caretTo(a.lastElementChild || a);
+}
+
 function ensureBlocks() {
   const a = $('#ed-area');
   if (!a) return;
   const BLOCK = /^(H[1-6]|UL|OL|PRE|BLOCKQUOTE|P|DIV|HR)$/;
+
+  // Moving a node out of the editor and back in collapses Chrome's selection to
+  // the editor itself, which then answers "no block" to everything. Remember
+  // where the caret was and put it back on the same node afterwards.
+  // A Range is live and does not survive its container being moved in a way we
+  // can rely on, so the four boundary values are kept as plain references and
+  // the range is rebuilt afterwards. Both ends, not just the start: collapsing
+  // here would hand Bold an empty selection and it would format nothing.
+  const sel = getSelection();
+  const mark = sel && sel.rangeCount && a.contains(sel.anchorNode) ? {
+    sc: sel.getRangeAt(0).startContainer, so: sel.getRangeAt(0).startOffset,
+    ec: sel.getRangeAt(0).endContainer, eo: sel.getRangeAt(0).endOffset
+  } : null;
 
   let run = [];
   const flush = () => {
     if (!run.length) return;
     const p = document.createElement('p');
     run[0].before(p);
-    p.append(...run);          // moves them: any range inside stays valid
+    p.append(...run);
     run = [];
   };
 
@@ -1186,6 +1258,17 @@ function ensureBlocks() {
     else run.push(node);
   }
   flush();
+
+  if (mark && mark.sc.isConnected && mark.ec.isConnected) {
+    const len = (n) => (n.nodeType === Node.TEXT_NODE ? n.nodeValue.length : n.childNodes.length);
+    try {
+      const r = document.createRange();
+      r.setStart(mark.sc, Math.min(mark.so, len(mark.sc)));
+      r.setEnd(mark.ec, Math.min(mark.eo, len(mark.ec)));
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch { /* the nodes moved somewhere incompatible; leave the caret alone */ }
+  }
 }
 
 // execCommand leaves the DOM in states markdown has no way to express: a quote
@@ -1300,12 +1383,66 @@ function toggleTasks() {
   caretTo(item.lastElementChild);
 }
 
+
+// Which tools apply where the caret is.
+//
+// Without this the toolbar is write-only: you can turn bold on but nothing tells
+// you it is on, so the only way to know what you are about to type is to type it
+// and look. Runs on every selection change, which is cheap and keeps the buttons
+// honest while you move around with the arrow keys as well as the mouse.
+function toolStates() {
+  const a = $('#ed-area');
+  if (!a) return null;
+
+  const li = ancestor((n) => n.tagName === 'LI');
+  const inTasks = !!(li && li.parentElement?.classList.contains('tasks'));
+  const list = ancestor((n) => n.tagName === 'UL' || n.tagName === 'OL');
+
+  const cmd = (name) => { try { return document.queryCommandState(name); } catch { return false; } };
+
+  return {
+    bold: cmd('bold'),
+    italic: cmd('italic'),
+    strike: cmd('strikeThrough'),
+    h: !!ancestor((n) => /^H[1-6]$/.test(n.tagName)),
+    // A task list is a <ul>, so the bullet tool must not claim it as well.
+    ul: !!(list && list.tagName === 'UL' && !inTasks),
+    ol: !!(list && list.tagName === 'OL'),
+    task: inTasks,
+    quote: !!ancestor((n) => n.tagName === 'BLOCKQUOTE'),
+    code: !!ancestor((n) => n.tagName === 'CODE'),
+    link: !!ancestor((n) => n.tagName === 'A')
+  };
+}
+
+function syncTools() {
+  const a = $('#ed-area');
+  if (!a) return;
+  // Only when the caret is actually in the note: a selection elsewhere on the
+  // page would otherwise light the buttons up for text they do not govern.
+  const anchor = getSelection()?.anchorNode;
+  if (!anchor || !a.contains(anchor)) return;
+
+  const on = toolStates();
+  if (!on) return;
+  for (const [k, active] of Object.entries(on)) {
+    $(`[data-tool="${k}"]`)?.setAttribute('aria-pressed', String(!!active));
+  }
+}
+
+// One listener for the life of the popup; it does nothing unless an editor is open.
+document.addEventListener('selectionchange', syncTools);
+
 function applyTool(k) {
   const t = TOOLS.find((x) => x.k === k);
   const a = $('#ed-area');
   if (!t || !a) return;
   a.focus();
-  ensureBlocks();      // so there is a block to act on, even in an empty note
+  // Order matters: wrap the loose text into a block first, then make sure the
+  // caret is inside one. The other way round anchors the caret to the editor
+  // itself, and "which block am I in" answers nothing all over again.
+  ensureBlocks();
+  ensureCaret();
 
   if (t.cmd) {
     document.execCommand(t.cmd, false, null);
@@ -1330,6 +1467,7 @@ function applyTool(k) {
   }
 
   tidyEditor();
+  syncTools();
   readBack();
   queueSave();
 }
@@ -1392,6 +1530,7 @@ function editorKeys(e) {
     caretTo(next.lastElementChild);
   }
   tidyEditor();
+  syncTools();
   readBack();
   queueSave();
 }
@@ -1545,7 +1684,11 @@ const lockVault = safe(async () => {
 
 // The gate lives in the right pane only: the list keeps working while the vault is
 // locked, it simply has no vault rows in it, because their titles are encrypted too.
-function drawVaultGate() {
+// `focus` only when unlocking was actually asked for. Merely selecting the vault
+// row, or the "Unlock the vault" action, renders the gate too — and focusing the
+// password field there would take the cursor out of the search box, so the next
+// thing typed would go into the password field instead of the search.
+function drawVaultGate({ focus = false } = {}) {
   const pane = $('#detail');
   pane.replaceChildren();
   const setup = state.vaultState === 'setup';
@@ -1601,7 +1744,7 @@ function drawVaultGate() {
       el('button', { class: 'primary', onclick: go }, setup ? 'Create vault' : 'Unlock'),
       msg)
   );
-  p1.focus();
+  if (focus) p1.focus();
 }
 
 // Does a saved item belong to the site in the front tab?
@@ -1831,7 +1974,7 @@ function drawSettings() {
           class: 'act',
           onclick: safe(async () => {
             if (state.vaultState === 'open') { await lockVault(); drawSettings(); }
-            else { setScreen(null); setFilter('vault'); drawVaultGate(); }
+            else { setScreen(null); setFilter('vault'); drawVaultGate({ focus: true }); }
           })
         }, state.vaultState === 'open' ? 'Lock now' : state.vaultState === 'setup' ? 'Set up' : 'Unlock')),
       row('Autofill',
@@ -1986,11 +2129,11 @@ function openActive(e) {
   const item = state.rows[state.active];
   if (!item) return;
   if (item.kind === 'action') return runRow(item);
-  if (item.kind === 'note') return openEditor(item);
+  if (item.kind === 'note') return focusEditor();
   if (item.kind === 'link') return safe(() => openLink(item))();
   if (item.kind === 'clip') return safe(() => copy(item.row.content))();
   if (item.kind === 'vault') {
-    if (state.vaultState !== 'open') return drawVaultGate();
+    if (state.vaultState !== 'open') return drawVaultGate({ focus: true });
     // Ctrl+Enter copies the password; plain Enter fills, when the page matches.
     if (e.metaKey || e.ctrlKey) return safe(() => copy(item.row.password || '', 'Password copied'))();
     return hostMatches(item.row.url, state.tabHost) ? fillItem(item.row) : copy(item.row.password || '', 'Password copied');

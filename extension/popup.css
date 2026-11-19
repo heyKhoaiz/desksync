@@ -313,6 +313,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .ed-bar button { height: 26px; min-width: 26px; padding: 0 6px; border-radius: 7px;
   display: grid; place-items: center; color: var(--fg-2); font-size: 12px; }
 .ed-bar button:hover { background: var(--hover); color: var(--fg); }
+/* On means "this applies to what you are about to type", so it reads as a
+   pressed key rather than as a hover. */
+.ed-bar .tools button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.ed-bar .tools button[aria-pressed="true"]:hover { background: var(--ink); color: var(--on-ink); }
 .ed-bar .sep { width: 1px; height: 15px; background: var(--line); margin: 0 5px; }
 .ed-bar .b { font-weight: 800; }
 .ed-bar .i-t { font-style: italic; font-family: Georgia, serif; }

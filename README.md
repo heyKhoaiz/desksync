@@ -41,7 +41,9 @@ Run `make` to list them all: `env`, `ext`, `zip`, `icons`, `app`, `apk`, `device
 | Rename or delete a tag | Settings → Tags. Renaming rewrites it everywhere; deleting only removes the label, never the item |
 | Save tab to read later | `Alt+Shift+S`, right-click → *Save page/link to Read Later*, or the popup button |
 | Save selected text as a note | right-click → *Save selection as a note* |
-| Write a note | the editor shows the note as it will look — bold text is bold while you type it, with a toolbar for headings, lists, quotes, code and links. There is no Preview button because there is nothing to preview, and no Save button: it saves as you type, because a popup closes as soon as you click elsewhere |
+| Write a note | select it and type. The pane shows the note as it will look — bold text is bold while you type it — with a toolbar for headings, lists, checklists, quotes, code and links, lit up to show what applies where the cursor is. There is no Edit button because there is no read-only state, no Preview button because there is nothing to preview, and no Save button: it saves as you type, because a popup closes as soon as you click elsewhere |
+| Make a checklist | the ☐ button turns the line, or a list, into tickable items. Enter carries it down, Enter on an empty item ends it |
+| Room to write | the ⤢ button in the toolbar gives the note the whole popup |
 | Add a login | Vault → *New login*. Editing one has an explicit Save, unlike notes: a password saved half-typed is a login you can no longer use |
 | Clipboard history | off by default: in Settings, turn on capture and click *Allow* on each site, or use *Save from clipboard* in the Clipboard tab |
 | Vault | Vault tab → set a master password (cannot be recovered) |
