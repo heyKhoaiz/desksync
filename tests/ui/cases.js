@@ -309,6 +309,69 @@
     document.getElementById('home').click();
     await wait(120);
 
+    // ================= BLOCK TOOLS =================
+    // execCommand wraps rather than toggles, and splits lists. Left alone that
+    // gives a quote inside a quote inside a quote, and three one-item lists in a
+    // row that each restart at 1.
+    group('block tools');
+    await reset();
+    await openNoteEditor('Grocery');
+
+    const ed = document.getElementById('ed-area');
+    const selectAllOf = (node) => {
+      const sel = getSelection();
+      const rr = document.createRange();
+      rr.selectNodeContents(node);
+      sel.removeAllRanges(); sel.addRange(rr);
+    };
+    const tool = (k) => document.querySelector(`[data-tool=${k}]`)
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+
+    editorType('<p>quote me</p>');
+    selectAllOf(ed.querySelector('p'));
+    tool('quote');
+    eq('Quote wraps the line once', ed.querySelectorAll('blockquote').length, 1);
+    tool('quote');
+    eq('pressing Quote again takes it off', ed.querySelectorAll('blockquote').length, 0);
+    tool('quote'); tool('quote'); tool('quote');
+    ok('it never nests, however many times it is pressed',
+      ed.querySelectorAll('blockquote blockquote').length === 0 &&
+      ed.querySelectorAll('blockquote').length <= 1,
+      ed.innerHTML);
+
+    editorType('<p>one</p><p>two</p>');
+    selectAllOf(ed);
+    tool('ol');
+    eq('a numbered list is one list, not one per line', ed.querySelectorAll('ol').length, 1);
+    ok('and it counts up', /^1\. one\n2\. two/m.test(editorMarkdown()), editorMarkdown());
+
+    editorType('<ol><li>a</li></ol><ol><li>b</li></ol>');
+    tool('bold'); // any command triggers the tidy pass
+    eq('lists that arrive split are joined', ed.querySelectorAll('ol').length, 1);
+
+    // Task lists: the thing the toolbar had no way to make.
+    editorType('<p>buy milk</p>');
+    selectAllOf(ed.querySelector('p'));
+    tool('task');
+    ok('Task list turns a line into a checkbox item', !!ed.querySelector('ul.tasks .box'), ed.innerHTML);
+    eq('and it stores as an unticked task', editorMarkdown(), '- [ ] buy milk');
+
+    ed.querySelector('.box').click();
+    eq('clicking the box ticks it', editorMarkdown(), '- [x] buy milk');
+
+    selectAllOf(ed.querySelector('li'));
+    tool('task');
+    ok('pressing Task again turns it back into text',
+      !ed.querySelector('ul.tasks') && /buy milk/.test(ed.textContent), ed.innerHTML);
+
+    editorType('<ul><li>one</li><li>two</li></ul>');
+    selectAllOf(ed.querySelector('li'));
+    tool('task');
+    eq('an existing list converts to tasks', editorMarkdown(), '- [ ] one\n- [ ] two');
+
+    document.getElementById('home').click();
+    await wait(150);
+
     // ================= NOTES: SAVING =================
     group('notes — saving');
     await reset();

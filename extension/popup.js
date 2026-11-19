@@ -859,6 +859,7 @@ const TOOLS = [
   { k: 'h',      cls: '',     txt: 'H',  label: 'Heading',       block: 'H2' },
   { k: 'ul',     cls: '',     txt: '•', label: 'Bullet list',   cmd: 'insertUnorderedList' },
   { k: 'ol',     cls: '',     txt: '1.', label: 'Numbered list', cmd: 'insertOrderedList' },
+  { k: 'task',   cls: '',     txt: '☐', label: 'Task list',     tasks: true },
   { k: 'quote',  cls: '',     txt: '“', label: 'Quote',         block: 'BLOCKQUOTE' },
   { sep: true },
   { k: 'code',   cls: 'mono', txt: '{}', label: 'Code',          wrap: 'code' },
@@ -1045,6 +1046,126 @@ function currentBlock() {
   return null;
 }
 
+// The nearest ancestor of a kind, stopping at the editor itself.
+function ancestor(test) {
+  const a = $('#ed-area');
+  let node = getSelection()?.anchorNode;
+  while (node && node !== a) {
+    if (node.nodeType === Node.ELEMENT_NODE && test(node)) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+const unwrap = (node) => node.replaceWith(...node.childNodes);
+
+// Puts the caret at the end of a node.
+function caretTo(node) {
+  const r = document.createRange();
+  r.selectNodeContents(node);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+// execCommand leaves the DOM in states markdown has no way to express: a quote
+// inside a quote inside a quote, or three one-item lists in a row where one list
+// of three was meant. Tidying after each command is what keeps what you see and
+// what gets stored the same thing.
+function tidyEditor() {
+  const a = $('#ed-area');
+  if (!a) return;
+
+  // Nested quotes flatten: markdown has one level and the bars just stack up.
+  let guard = 0;
+  let nested = a.querySelector('blockquote blockquote');
+  while (nested && guard++ < 50) {
+    unwrap(nested);
+    nested = a.querySelector('blockquote blockquote');
+  }
+
+  // Lists split by a command are joined back up, so numbering keeps counting.
+  for (const list of [...a.querySelectorAll('ul, ol')]) {
+    let next = list.nextElementSibling;
+    while (next && next.tagName === list.tagName &&
+           next.classList.contains('tasks') === list.classList.contains('tasks')) {
+      list.append(...next.children);
+      next.remove();
+      next = list.nextElementSibling;
+    }
+  }
+
+  // Every task item needs its box, and a brand new one starts unticked.
+  for (const list of a.querySelectorAll('ul.tasks')) {
+    for (const li of list.children) {
+      if (li.tagName !== 'LI') continue;
+      let box = li.querySelector(':scope > .box');
+      if (!box) {
+        box = document.createElement('span');
+        box.className = 'box';
+        li.prepend(box);
+      }
+      const text = [...li.childNodes].filter((n) => n !== box)
+        .map((n) => n.textContent).join('').trim();
+      if (!text) { box.classList.remove('on'); li.classList.remove('done'); }
+      li.classList.toggle('done', box.classList.contains('on'));
+    }
+  }
+
+  // execCommand likes to leave empty wrappers behind.
+  for (const el2 of a.querySelectorAll('p, div, blockquote, h1, h2, h3')) {
+    if (!el2.textContent.trim() && !el2.querySelector('br, img, .box') && a.children.length > 1) el2.remove();
+  }
+}
+
+// Turns the block the caret is in into a task list, or back out of one.
+function toggleTasks() {
+  const a = $('#ed-area');
+  const block = currentBlock();
+  const li = block && block.tagName === 'LI' ? block : block?.closest?.('li');
+  const list = li?.parentElement;
+
+  if (list && list.classList.contains('tasks')) {
+    // back to ordinary paragraphs
+    const frag = document.createDocumentFragment();
+    let last = null;
+    for (const item of [...list.children]) {
+      const p = document.createElement('p');
+      const textSpan = [...item.children].find((c) => !c.classList.contains('box'));
+      p.innerHTML = textSpan ? textSpan.innerHTML : item.innerHTML;
+      frag.append(p);
+      last = p;
+    }
+    list.replaceWith(frag);
+    if (last) caretTo(last);
+    return;
+  }
+
+  if (list && (list.tagName === 'UL' || list.tagName === 'OL')) {
+    // an existing list becomes a task list, keeping its items
+    const ul = document.createElement('ul');
+    ul.className = 'tasks';
+    for (const item of [...list.children]) {
+      if (item.tagName !== 'LI') continue;
+      const next = document.createElement('li');
+      next.innerHTML = `<span class="box"></span><span>${item.innerHTML}</span>`;
+      ul.append(next);
+    }
+    list.replaceWith(ul);
+    caretTo(ul.lastElementChild);
+    return;
+  }
+
+  const ul = document.createElement('ul');
+  ul.className = 'tasks';
+  const item = document.createElement('li');
+  item.innerHTML = `<span class="box"></span><span>${block ? block.innerHTML : ''}</span>`;
+  ul.append(item);
+  if (block) block.replaceWith(ul); else a.append(ul);
+  caretTo(item.lastElementChild);
+}
+
 function applyTool(k) {
   const t = TOOLS.find((x) => x.k === k);
   const a = $('#ed-area');
@@ -1053,10 +1174,18 @@ function applyTool(k) {
 
   if (t.cmd) {
     document.execCommand(t.cmd, false, null);
+  } else if (t.tasks) {
+    toggleTasks();
+  } else if (t.block === 'BLOCKQUOTE') {
+    // formatBlock wraps, it does not toggle: pressing Quote twice used to put a
+    // quote inside a quote, and the bars stacked up one per press.
+    const bq = ancestor((n) => n.tagName === 'BLOCKQUOTE');
+    if (bq) unwrap(bq);
+    else document.execCommand('formatBlock', false, 'BLOCKQUOTE');
   } else if (t.block) {
     // Pressing Heading inside a heading takes it back off, rather than doing nothing.
-    const here = currentBlock()?.tagName;
-    document.execCommand('formatBlock', false, here === t.block ? 'P' : t.block);
+    const here = ancestor((n) => /^H[1-6]$/.test(n.tagName));
+    document.execCommand('formatBlock', false, here ? 'P' : t.block);
   } else if (t.wrap) {
     const sel = getSelection();
     const text = sel?.toString();
@@ -1065,6 +1194,7 @@ function applyTool(k) {
     return askForLink();
   }
 
+  tidyEditor();
   readBack();
   queueSave();
 }
@@ -1102,8 +1232,32 @@ function askForLink() {
 
 function editorKeys(e) {
   // Esc and Cmd+Enter belong to the pane; contenteditable handles Enter, lists
-  // and Ctrl+B/I itself, so there is nothing else to intercept here.
+  // and Ctrl+B/I itself.
   if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) return;
+
+  if (e.key !== 'Enter' || e.shiftKey) return;
+  const li = ancestor((n) => n.tagName === 'LI');
+  const list = li?.parentElement;
+  if (!list || !list.classList.contains('tasks')) return;
+
+  e.preventDefault();
+  const textSpan = [...li.children].find((c) => !c.classList.contains('box'));
+  // Enter on an empty item ends the list, the same as every other editor.
+  if (!textSpan || !textSpan.textContent.trim()) {
+    const p = document.createElement('p');
+    p.innerHTML = '<br>';
+    list.after(p);
+    li.remove();
+    caretTo(p);
+  } else {
+    const next = document.createElement('li');
+    next.innerHTML = '<span class="box"></span><span></span>';
+    li.after(next);
+    caretTo(next.lastElementChild);
+  }
+  tidyEditor();
+  readBack();
+  queueSave();
 }
 
 // ---------- Vault editor ----------
