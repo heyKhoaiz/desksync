@@ -94,11 +94,44 @@ async function boot() {
   if (!isConfigured) $('#auth-msg').textContent = 'Not configured: run make ext, then load dist/extension.';
   if (!user) return;
   $('#me').textContent = user.email;
+  // Drops a previous account's cached rows and queued writes before showing anything.
+  await cache.claim(user.id);
   const { lastTab } = await chrome.storage.local.get('lastTab');
   showTab(lastTab || 'notes');
   loadNotes(); loadLater(); loadClips(); loadSettings();
   subscribeRealtime(user.id);
+  updateOfflineBar();
+  syncNow();
 }
+
+// ---------- Offline ----------
+// The strip under the header is the only place offline state is announced; writes
+// themselves don't fail, they queue (see lib/client.js).
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+async function updateOfflineBar() {
+  const pending = await outbox.count();
+  const bar = $('#offline-bar');
+  bar.classList.toggle('hidden', navigator.onLine && !pending);
+  bar.textContent = !navigator.onLine
+    ? (pending ? `Offline — ${plural(pending, 'change')} saved here, will sync later` : 'Offline — showing saved data')
+    : `Syncing ${plural(pending, 'change')}…`;
+}
+
+const syncNow = safe(async () => {
+  const { synced } = await outbox.flush();
+  await updateOfflineBar();
+  if (!synced) return;
+  loadNotes(); loadLater(); loadClips();
+  if (state.vaultKey) loadVault();
+});
+
+window.addEventListener('online', () => { updateOfflineBar(); syncNow(); });
+window.addEventListener('offline', updateOfflineBar);
+// Writes from the service worker (saved tabs, captured clips) queue too, so watch the outbox itself.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[OUTBOX_KEY]) updateOfflineBar();
+});
 
 $('#auth-form').addEventListener('submit', safe(async (e) => {
   e.preventDefault();
@@ -114,8 +147,22 @@ $('#auth-form').addEventListener('submit', safe(async (e) => {
   boot();
 }));
 
+// Signing out clears the local cache and the outbox, so unsynced changes are lost.
+// When there are any, the button says so and asks a second time.
 $('#signout').addEventListener('click', safe(async () => {
-  await vaultCrypto.lock(); await sb.auth.signOut(); location.reload();
+  const b = $('#signout');
+  const pending = await outbox.count();
+  if (pending && !b.dataset.armed) {
+    b.dataset.armed = '1';
+    b.replaceChildren(icon('exit'), `${plural(pending, 'change')} not synced — sign out anyway?`);
+    clearTimeout(b._t);
+    b._t = setTimeout(() => { b.dataset.armed = ''; b.replaceChildren(icon('exit'), 'Sign out'); }, 5000);
+    return;
+  }
+  await vaultCrypto.lock();
+  await cache.clear();
+  await sb.auth.signOut();
+  location.reload();
 }));
 
 // ---------- Tabs ----------

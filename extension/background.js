@@ -19,13 +19,14 @@ async function saveTab(tab) {
   if (!tab?.url || !/^https?:/.test(tab.url)) { badge('×', '#dc2626'); return; }
   if (!(await currentUser())) { badge('!', '#dc2626'); return; }
   try {
-    await db.insert('read_later', {
+    const row = await db.insert('read_later', {
       url: tab.url,
       title: tab.title || tab.url,
       favicon: tab.favIconUrl || null,
       source: 'extension'
     });
-    badge('✓');
+    // Queued offline rather than saved to the server: still saved, just not synced yet.
+    if (row._pending) badge('⋯', '#71717a'); else badge('✓');
   } catch (e) {
     console.error('[DeskSync] saveTab', e);
     badge('×', '#dc2626');
@@ -37,7 +38,14 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'save-link', title: 'Save link to Read Later', contexts: ['link'] });
   chrome.contextMenus.create({ id: 'save-note', title: 'Save selection as a note', contexts: ['selection'] });
   chrome.alarms.create('vault-autolock', { periodInMinutes: 1 });
+  chrome.alarms.create('outbox-flush', { periodInMinutes: 1 });
   syncCaptureScripts();
+});
+
+// Alarms survive a service-worker restart but not a reinstall of the browser profile.
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create('outbox-flush', { periodInMinutes: 1 });
+  outbox.flush().catch(console.error);
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -112,11 +120,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) syncCaptureScripts();
 });
 
-// ---------- Vault auto-lock ----------
+// ---------- Vault auto-lock, offline sync ----------
 chrome.alarms.onAlarm.addListener(async (a) => {
-  if (a.name !== 'vault-autolock') return;
-  const { vaultLockAt } = await chrome.storage.session.get('vaultLockAt');
-  if (vaultLockAt && Date.now() > vaultLockAt) await vaultCrypto.lock();
+  if (a.name === 'vault-autolock') {
+    const { vaultLockAt } = await chrome.storage.session.get('vaultLockAt');
+    if (vaultLockAt && Date.now() > vaultLockAt) await vaultCrypto.lock();
+    return;
+  }
+  // Replays anything saved while offline, whether the popup is open or not.
+  if (a.name === 'outbox-flush' && navigator.onLine && (await currentUser())) {
+    await outbox.flush().catch(console.error);
+  }
 });
 
 function escapeHtml(s) {

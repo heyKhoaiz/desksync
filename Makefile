@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext zip icons app apk devices test clean check-env
+.PHONY: help env ext zip icons app apk devices test test-ext clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -40,8 +40,11 @@ apk: check-env ## Build a release APK
 devices: ## List connected phones
 	adb devices
 
-test: ## Run the app's static analysis and unit tests
+test: test-ext ## Run the extension tests, then the app's analysis and unit tests
 	cd mobile && flutter analyze && flutter test
+
+test-ext: ## Run the extension's offline-sync tests
+	@node tests/offline.test.js
 
 clean: ## Delete build output
 	rm -rf dist
