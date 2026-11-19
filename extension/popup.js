@@ -112,6 +112,33 @@ $('#auth-form').addEventListener('submit', safe(async (e) => {
   if (error) { $('#auth-msg').textContent = error.message; return; }
   if (mode === 'signup' && !data.session) { $('#auth-msg').textContent = 'Check your email to confirm, then sign in.'; return; }
   
+// ---------- Writing rows when the database is behind the code ----------
+// PostgREST answers "Could not find the 'format' column of 'notes' in the schema
+// cache" when supabase/migrations/001_tags_and_markdown.sql has not been run.
+// The old behaviour was to throw, which meant the note you had just typed was
+// thrown away along with the request. Dropping the column the server does not
+// know about and saving the rest keeps the writing; the warning says what to run.
+const MISSING_COLUMN = /Could not find the '([^']+)' column/i;
+const warnedColumns = new Set();
+
+async function writeRow(table, id, row) {
+  const payload = { ...row };
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return id ? await db.update(table, id, payload) : await db.insert(table, payload);
+    } catch (e) {
+      const column = MISSING_COLUMN.exec(e?.message || '')?.[1];
+      if (!column || !(column in payload)) throw e;
+      delete payload[column];
+      if (!warnedColumns.has(column)) {
+        warnedColumns.add(column);
+        toast(`Saved, but your database has no '${column}' column yet — run supabase/migrations/001_tags_and_markdown.sql`);
+      }
+    }
+  }
+  throw new Error('Could not save this row');
+}
+
 // ---------- The logo is "take me back" ----------
 // One button that undoes whatever state you wandered into: a type filter, tag
 // chips, a half-typed search, settings, the trash, an open editor. Every list
@@ -296,7 +323,7 @@ async function saveTags(item, tags) {
     await db.update('vault_items', item.id, { iv, ciphertext });
   } else {
     item.row.tags = tags;
-    await db.update(TYPES[item.kind].table, item.id, { tags });
+    await writeRow(TYPES[item.kind].table, item.id, { tags });
   }
 }
 
@@ -486,8 +513,11 @@ function rowFor(item, idx, query) {
 }
 
 function hoverRow(i) { if (!state.editing && i !== state.active) setActive(i, false); }
-function clickRow(i) {
-  if (state.editing) closeEditor();
+async function clickRow(i) {
+  // Awaited: closeEditor clears state.editing when its save resolves, so firing
+  // it and carrying on would wipe the session we are about to open. Clicking
+  // "New note" with an editor already open lost the new note that way.
+  if (state.editing) await closeEditor();
   setActive(i, false);
   // An action row is a button, not something to inspect: clicking it runs it.
   // Selecting it and making you click "Do it" in the other pane read as nothing
@@ -878,11 +908,9 @@ const flushDraft = safe(async (final, itemOverride) => {
   if (item.isNew && !title.trim() && !body.trim()) { if (final) state.draft = null; return; }
 
   const row = { title: title.trim(), body, format: 'markdown', tags };
-  if (item.id) {
-    await db.update('notes', item.id, row);
-  } else {
-    const created = await db.insert('notes', row);
-    item.id = created?.id ?? item.id;
+  const saved_row = await writeRow('notes', item.id, row);
+  if (!item.id) {
+    item.id = saved_row?.id ?? item.id;
     item.isNew = false;
   }
   const saved = $('#ed-saved');
@@ -1435,6 +1463,33 @@ function openActive(e) {
   }
 }
 
+
+// ---------- Writing rows when the database is behind the code ----------
+// PostgREST answers "Could not find the 'format' column of 'notes' in the schema
+// cache" when supabase/migrations/001_tags_and_markdown.sql has not been run.
+// The old behaviour was to throw, which meant the note you had just typed was
+// thrown away along with the request. Dropping the column the server does not
+// know about and saving the rest keeps the writing; the warning says what to run.
+const MISSING_COLUMN = /Could not find the '([^']+)' column/i;
+const warnedColumns = new Set();
+
+async function writeRow(table, id, row) {
+  const payload = { ...row };
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return id ? await db.update(table, id, payload) : await db.insert(table, payload);
+    } catch (e) {
+      const column = MISSING_COLUMN.exec(e?.message || '')?.[1];
+      if (!column || !(column in payload)) throw e;
+      delete payload[column];
+      if (!warnedColumns.has(column)) {
+        warnedColumns.add(column);
+        toast(`Saved, but your database has no '${column}' column yet — run supabase/migrations/001_tags_and_markdown.sql`);
+      }
+    }
+  }
+  throw new Error('Could not save this row');
+}
 
 // ---------- The logo is "take me back" ----------
 // One button that undoes whatever state you wandered into: a type filter, tag
