@@ -32,7 +32,8 @@ every Chrome profile and an Android app.
 - Deletes are soft (`deleted_at`) so every device sees them; a cron job can purge rows older than 30 days.
 - Deleting a clip also blanks `content` and `source_url`, because clips can hold copied secrets in plaintext.
 - Conflicts: last write wins on `updated_at` (fine for single-user data).
-- RLS policy on every table: `user_id = auth.uid()`.
+- RLS policy on every table: `user_id = (select auth.uid())` (wrapped so it is evaluated once per query, not per row).
+- Rows get a client-generated uuid, so one created offline keeps its id once it syncs.
 
 ## 3. Vault crypto (must match exactly in Flutter)
 
@@ -54,8 +55,11 @@ every Chrome profile and an Android app.
 - **Popup tabs:** Notes · Read later · Clipboard · Vault · Settings
 - **Notes:** rich text (bold, italic, underline, strike, list, highlight), 6 colors, tags, pin, search, `#tag` filter
 - **Read later:** save tab (button, `Alt+Shift+S`, right-click page/link), save all tabs, mark read, open
-- **Clipboard:** opt-in; content script captures copy/cut only on sites the user approved (skips password fields), search, pin, copy back, save as note, manual "+ Paste"
+- **Clipboard:** opt-in; content script captures copy/cut only on sites the user approved for capture (skips password fields), search, pin, copy back, save as note, manual "Save from clipboard"
 - **Vault:** create / unlock / lock, add & edit items, password generator, copy username/password, prefill from current tab
+- **Autofill:** an item saved for the site in front gets a Fill button; explicit click only, active tab only, host must match. Asks for host access to that site, which is kept separate from the clipboard-capture allowlist
+- **Trash:** restore or permanently delete soft-deleted notes, links and vault items (clips are excluded: their text is erased on delete)
+- **Offline:** reads come from a chrome.storage.local cache; writes queue in an outbox and replay in order, from the popup or a one-minute service-worker alarm
 - **Realtime:** popup refreshes when another profile or the phone changes data
 
 ## 5. Android app (`mobile/`, Flutter)
@@ -74,13 +78,15 @@ every Chrome profile and an Android app.
 1. ✅ Schema + extension MVP (all 4 features)
 2. ✅ Flutter app: login, notes, read later + share intent (share sheet still to try on a device)
 3. Flutter: clipboard view, vault with biometric unlock
-4. Android AutofillService; extension autofill on login forms
-5. Offline cache in the extension; trash with restore
+4. ✅ Extension autofill on login forms · ⬜ Android AutofillService
+5. ✅ Offline cache in the extension; trash with restore
 6. Freemium: free = notes + read-later on 1 device class; Pro = sync everywhere, clipboard, vault
 7. Store launch: Chrome Web Store + Play Store (privacy policy, data-safety form, justify optional host access)
 
 ## 7. Store-review notes
 
-- No host access at install. Clipboard capture asks per site through `optional_host_permissions`, and the
-  granted permissions are the allowlist. Supabase calls rely on CORS, not host permissions.
+- No host access at install. Both clipboard capture and autofill ask per site through
+  `optional_host_permissions`. Supabase calls rely on CORS, not host permissions.
+- Granted origins are not themselves the capture allowlist: capture runs only on sites explicitly
+  approved in Settings, so filling a password on a site does not start recording copies there.
 - Declare that vault data is end-to-end encrypted, and that clipboard text is stored in the user's account.
