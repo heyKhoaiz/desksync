@@ -137,7 +137,7 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .listcard { flex: 1; min-height: 0; background: var(--card); border-radius: var(--r);
   display: flex; flex-direction: column; overflow: hidden; }
-.listhead { flex: none; display: flex; align-items: baseline; gap: 7px; padding: 11px 13px 9px; }
+.listhead { flex: none; display: flex; align-items: baseline; gap: 7px; padding: 9px 13px 6px; }
 .listhead .where { font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
 .listhead .n { font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .listhead .dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
@@ -145,8 +145,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .listhead .clear:hover { color: var(--fg); }
 
 .list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 4px 4px; list-style: none; }
-.g-head { padding: 9px 10px 5px; font-size: 11px; font-weight: 600; color: var(--fg-2); }
-.row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px;
+.g-head { padding: 7px 10px 3px; font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.row { display: flex; align-items: flex-start; gap: 9px; padding: 7px 10px;
   border-radius: var(--r-row); cursor: pointer; }
 .row:hover { background: var(--hover); }
 .row[aria-selected="true"] { background: var(--sel); }
@@ -160,9 +160,12 @@ input, textarea, select { font: inherit; color: inherit; }
 .row[aria-selected="true"] .tg { background: var(--line); }
 .row .mark-i { color: var(--fg-2); opacity: .8; }
 .row.read .t, .row.locked .t { color: var(--fg-2); }
-.row.act { background: var(--hover); }
-.row.act .bul { background: var(--accent); }
-.row .kbd { flex: none; margin-top: 2px; font-size: 10.5px; color: var(--fg-2); }
+.row.act { align-items: center; background: var(--hover); padding: 6px 10px; }
+.row.act .bul { background: var(--accent); margin-top: 0; }
+.row.act .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.act .where { flex: none; max-width: 40%; font-size: 11.5px; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .kbd { flex: none; font-size: 10.5px; color: var(--fg-2); }
 .empty { padding: 40px 18px; text-align: center; color: var(--fg-2); list-style: none; }
 
 .count { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between;
@@ -355,5 +358,5 @@ input, textarea, select { font: inherit; color: inherit; }
    the list column gives width up first — a cramped detail pane is worse than a
    cramped list. These must come after .mid's own width rule to win on source order. */
 @media (max-width: 740px) { .mid { width: 280px; } }
-@media (max-width: 660px) { .mid { width: 250px; } }
-@media (max-width: 580px) { .mid { width: 220px; } body { gap: 8px; padding: 8px; } }
+@media (max-width: 660px) { .mid { width: 250px; } .row.act .where { display: none; } }
+@media (max-width: 580px) { .mid { width: 220px; } body { gap: 8px; padding: 8px; } .row .kbd { display: none; } }

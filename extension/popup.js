@@ -313,9 +313,9 @@ function matches(raw) {
 // The three things you come here to add. They used to be spread across the tabs.
 function actions() {
   const list = [
-    { action: 'tab',   title: 'Save this tab to Read later', sub: state.tabHost || 'No page to save',
-      kbd: 'Alt+Shift+S', disabled: !state.tabHost },
-    { action: 'clip',  title: 'Save what is on the clipboard', sub: 'Adds the clipboard as a clip' },
+    { action: 'tab',   title: 'Save this tab', where: state.tabHost || 'no page',
+      sub: state.tabHost || 'No page to save', kbd: 'Alt+Shift+S', disabled: !state.tabHost },
+    { action: 'clip',  title: 'Save the clipboard', sub: 'Adds the clipboard as a clip' },
     { action: 'note',  title: 'New note', sub: 'Start an empty note' }
   ];
   if (state.vaultState !== 'open') {
@@ -350,11 +350,11 @@ function draw() {
 
   let last = null;
   state.rows.forEach((item, idx) => {
-    const group = item.kind === 'action' ? 'Add'
+    const group = item.kind === 'action' ? null
       : text ? TYPES[item.kind].label
       : state.filter === 'all' ? 'Recent'
       : TYPES[item.kind].label;
-    if (group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
+    if (group && group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
     list.append(rowFor(item, idx, text));
   });
 
@@ -428,14 +428,15 @@ function highlight(text, query) {
 
 function rowFor(item, idx, query) {
   if (item.kind === 'action') {
+    // One line each: the detail pane spells the action out when it is selected,
+    // so repeating it here cost four rows of a list that only shows about ten.
     return el('li', {
       class: 'row act', id: 'r' + idx, role: 'option', 'aria-selected': 'false', 'data-i': idx,
       onmousemove: () => hoverRow(idx), onclick: () => clickRow(idx)
     },
       el('span', { class: 'bul' }),
-      el('span', { class: 'body' },
-        el('span', { class: 't' }, item.title),
-        el('span', { class: 'm' }, item.sub)),
+      el('span', { class: 't' }, item.title),
+      item.where ? el('span', { class: 'where' }, item.where) : null,
       item.kbd ? el('span', { class: 'kbd' }, item.kbd) : null);
   }
 
