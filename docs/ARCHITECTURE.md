@@ -52,13 +52,27 @@ every Chrome profile and an Android app.
 
 ## 4. Chrome extension (built)
 
-- **Popup tabs:** Notes · Read later · Clipboard · Vault · Settings
-- **Notes:** rich text (bold, italic, underline, strike, list, highlight), 6 colors, tags, pin, search, `#tag` filter
+- **Popup layout:** 780x560 landscape (Chrome caps a popup at 800x600). A rail of the four
+  types, one search field over all of them, and a detail pane on the right — selecting a row
+  reads it in place instead of navigating. Replaced four tabs that each had their own search,
+  where the thing you wanted was usually in a tab you were not in.
+- **Search:** one field across notes, links, clips and vault. Scored title-prefix > title >
+  second line > tag. `#tag` tokens in the same field are the tag filter, so the chips and the
+  typed text are one piece of state.
+- **Tags:** on all four types, not just notes. Rename, delete and colour live in Settings
+  because they act on every item carrying the tag. Vault tags are stored inside the encrypted
+  payload, never in a column
+- **Notes:** markdown (`format` column: `markdown`, or `html` for notes written before the
+  markdown editor, converted on first edit). Editor has a formatting toolbar, Write/Preview,
+  list continuation, and no Save button — a popup can be dismissed at any moment, so it
+  autosaves
 - **Read later:** save tab (button, `Alt+Shift+S`, right-click page/link), save all tabs, mark read, open
 - **Clipboard:** opt-in; content script captures copy/cut only on sites the user approved for capture (skips password fields), search, pin, copy back, save as note, manual "Save from clipboard"
 - **Vault:** create / unlock / lock, add & edit items, password generator, copy username/password, prefill from current tab
 - **Autofill:** an item saved for the site in front gets a Fill button; explicit click only, active tab only, host must match. Asks for host access to that site, which is kept separate from the clipboard-capture allowlist
 - **Trash:** restore or permanently delete soft-deleted notes, links and vault items (clips are excluded: their text is erased on delete)
+- **Vault lock:** gates the detail pane only. The list keeps working while the vault is locked;
+  vault items simply are not in it, because their titles live inside the ciphertext too
 - **Offline:** reads come from a chrome.storage.local cache; writes queue in an outbox and replay in order, from the popup or a one-minute service-worker alarm
 - **Realtime:** popup refreshes when another profile or the phone changes data
 
@@ -67,7 +81,7 @@ every Chrome profile and an Android app.
 | Screen / feature | Notes |
 |---|---|
 | Login | same Supabase account |
-| Notes | list + editor; renders the limited HTML as text spans; edits text only, keeping the stored body unless the text changes |
+| Notes | list + editor; renders the limited HTML as text spans; edits text only, keeping the stored body unless the text changes. **Needs updating for markdown:** the extension now writes `format='markdown'`, and `note_html.dart` would show the markup as literal text |
 | Read later | list; **Share → DeskSync** intent saves links from any app |
 | Clipboard | history synced from desktop; "save current clipboard" button (Android 10+ blocks background clipboard reading) |
 | Vault | biometric unlock (key wrapped in Android Keystore), **AutofillService** for other apps and browsers |

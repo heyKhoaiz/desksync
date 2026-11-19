@@ -48,9 +48,11 @@ const CACHE_OWNER_KEY = 'cacheOwner';
 // Column defaults, mirroring supabase/schema.sql. Only needed so a row created
 // offline renders the same as one that came back from the server.
 const ROW_DEFAULTS = {
-  notes: { title: '', body: '', color: 'yellow', tags: [], pinned: false },
-  read_later: { url: '', title: '', favicon: null, note: '', is_read: false, source: 'extension' },
-  clips: { content: '', source_url: null, pinned: false },
+  notes: { title: '', body: '', format: 'markdown', color: 'yellow', tags: [], pinned: false },
+  read_later: { url: '', title: '', favicon: null, note: '', is_read: false, source: 'extension', tags: [] },
+  clips: { content: '', source_url: null, pinned: false, tags: [] },
+  // Vault tags live inside the encrypted payload, not in a column, so that a
+  // plaintext 'banking' label never tells the server what a login is for.
   vault_items: { iv: '', ciphertext: '' }
 };
 

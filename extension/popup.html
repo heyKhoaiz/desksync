@@ -7,6 +7,7 @@
 </head>
 <body>
   <!-- Icon sprite. Used from here and from icon() in popup.js. -->
+  <!-- Icon sprite. Used from here and from icon() in popup.js. -->
   <svg class="hidden" aria-hidden="true">
     <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
@@ -37,235 +38,70 @@
     <symbol id="i-exit" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/></symbol>
     <symbol id="i-sync" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2 2M20 4v5h-5M20 12a8 8 0 0 1-14 5l-2-2M4 20v-5h5"/></symbol>
     <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/></symbol>
+    <symbol id="i-all" viewBox="0 0 24 24"><path d="M4.5 7h15M4.5 12h15M4.5 17h10"/></symbol>
+    <symbol id="i-open" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M18 13.5V19H5V6h5.5"/></symbol>
   </svg>
 
   <!-- ---------- Auth ---------- -->
-  <section id="auth" class="screen hidden">
-    <div class="sheet">
-      <div class="scroll pad">
-        <div class="tile brand"><svg class="i"><use href="#i-sync"/></svg></div>
-        <h1>DeskSync</h1>
-        <p class="muted">One account for every Chrome profile and your phone.</p>
-        <form id="auth-form">
-          <input id="auth-email" type="email" placeholder="Email" required autocomplete="username">
-          <input id="auth-pass" type="password" placeholder="Password (min 8)" minlength="8" required autocomplete="current-password">
-          <p id="auth-msg" class="msg"></p>
-        </form>
-      </div>
-    </div>
-    <div class="dock">
-      <button form="auth-form" type="submit" data-mode="signin" class="pill light">Sign in</button>
-      <button form="auth-form" type="submit" data-mode="signup" class="pill">Create account</button>
+
+  <!-- ---------- Auth ---------- -->
+  <section id="auth" class="hidden">
+    <div class="box">
+      <div class="mark" aria-hidden="true">D</div>
+      <h1>DeskSync</h1>
+      <p>One account for every Chrome profile and your phone.</p>
+      <form id="auth-form">
+        <input id="auth-email" type="email" placeholder="Email" required autocomplete="username">
+        <input id="auth-pass" type="password" placeholder="Password (min 8)" minlength="8" required autocomplete="current-password">
+        <div class="row">
+          <button type="submit" data-mode="signin" class="primary">Sign in</button>
+          <button type="submit" data-mode="signup" class="ghost">Create account</button>
+        </div>
+        <p id="auth-msg" class="msg" role="alert"></p>
+      </form>
     </div>
   </section>
 
   <!-- ---------- App ---------- -->
-  <section id="app" class="screen hidden">
-    <div class="sheet">
-      <header class="hdr">
-        <button id="nav-settings" class="round" title="Settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
-        <h1 id="tab-title">Notes</h1>
-        <button id="notes-pinned" data-for="notes" class="round" title="Pinned only" aria-label="Pinned only" aria-pressed="false"><svg class="i"><use href="#i-star"/></svg></button>
-        <button id="later-show-read" data-for="later" class="round" title="Show read" aria-label="Show read" aria-pressed="false"><svg class="i"><use href="#i-check"/></svg></button>
-        <button id="clips-pinned" data-for="clips" class="round" title="Pinned only" aria-label="Pinned only" aria-pressed="false"><svg class="i"><use href="#i-star"/></svg></button>
-        <button id="vault-lock" data-for="vault" class="round vault-only" title="Lock now" aria-label="Lock now"><svg class="i"><use href="#i-lock"/></svg></button>
-      </header>
+  <section id="app" class="hidden">
+    <!-- The four types, then trash and settings. The types are the app's;
+         the tags under the search field are the user's own. -->
+    <nav class="rail" aria-label="Type">
+      <div class="mark" aria-hidden="true">D</div>
+      <button data-f="all"    aria-pressed="true"  title="Everything"><svg class="i"><use href="#i-all"/></svg></button>
+      <button data-f="note"   aria-pressed="false" title="Notes"><svg class="i"><use href="#i-note"/></svg></button>
+      <button data-f="link"   aria-pressed="false" title="Read later"><svg class="i"><use href="#i-bookmark"/></svg></button>
+      <button data-f="clip"   aria-pressed="false" title="Clipboard"><svg class="i"><use href="#i-clip"/></svg></button>
+      <button data-f="vault"  aria-pressed="false" title="Vault"><svg class="i"><use href="#i-shield"/></svg></button>
+      <div class="spacer"></div>
+      <button data-screen="trash"    aria-pressed="false" title="Trash"><svg class="i"><use href="#i-trash"/></svg></button>
+      <button data-screen="settings" aria-pressed="false" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+    </nav>
+
+    <div class="mid" id="mid">
+      <div class="search">
+        <svg class="i"><use href="#i-search"/></svg>
+        <!-- Focus lives here the whole time. The highlighted row is tracked with
+             aria-activedescendant so typing keeps working while you arrow. -->
+        <input id="q" type="text" placeholder="Search everything" autocomplete="off"
+               role="combobox" aria-expanded="true" aria-controls="list" aria-autocomplete="list"
+               aria-label="Search notes, read later, clipboard and vault">
+        <kbd>esc</kbd>
+      </div>
       <div id="offline-bar" class="offline-bar hidden" role="status"></div>
-
-      <!-- Notes -->
-      <div id="tab-notes" class="tab">
-        <div class="search">
-          <svg class="i"><use href="#i-search"/></svg>
-          <input id="notes-search" type="search" placeholder="Search notes or #tag" aria-label="Search notes">
-          <button id="notes-filter" class="round ink" title="Filter by tag" aria-label="Filter by tag" aria-expanded="false"><svg class="i"><use href="#i-filter"/></svg></button>
-        </div>
-        <div id="notes-tagbar" class="tagbar hidden"></div>
-        <ul id="notes-list" class="list"></ul>
-      </div>
-
-      <!-- Read later -->
-      <div id="tab-later" class="tab hidden">
-        <ul id="later-list" class="list"></ul>
-      </div>
-
-      <!-- Clipboard -->
-      <div id="tab-clips" class="tab hidden">
-        <div class="search">
-          <svg class="i"><use href="#i-search"/></svg>
-          <input id="clips-search" type="search" placeholder="Search clipboard history" aria-label="Search clipboard history">
-        </div>
-        <ul id="clips-list" class="list"></ul>
-      </div>
-
-      <!-- Vault -->
-      <div id="tab-vault" class="tab hidden">
-        <div id="vault-setup" class="scroll pad hidden">
-          <div class="tile brand"><svg class="i"><use href="#i-shield"/></svg></div>
-          <h2>Set up your vault</h2>
-          <p class="muted">Pick a master password. It never leaves this device and <b>cannot be recovered</b> — if you forget it, the vault is lost.</p>
-          <input id="vault-new1" type="password" placeholder="Master password (min 10)" minlength="10">
-          <input id="vault-new2" type="password" placeholder="Repeat master password">
-          <button id="vault-create" class="wide ink">Create vault</button>
-          <p id="vault-setup-msg" class="msg"></p>
-        </div>
-
-        <div id="vault-locked" class="scroll pad hidden">
-          <div class="tile brand"><svg class="i"><use href="#i-lock"/></svg></div>
-          <h2>Vault locked</h2>
-          <input id="vault-pass" type="password" placeholder="Master password">
-          <button id="vault-unlock" class="wide ink">Unlock</button>
-          <p id="vault-msg" class="msg"></p>
-        </div>
-
-        <div id="vault-open" class="tab hidden">
-          <div class="search">
-            <svg class="i"><use href="#i-search"/></svg>
-            <input id="vault-search" type="search" placeholder="Search vault" aria-label="Search vault">
-          </div>
-          <ul id="vault-list" class="list"></ul>
-        </div>
-      </div>
-
-      <!-- Settings -->
-      <div id="tab-settings" class="tab hidden">
-        <div class="scroll pad">
-          <div class="feature card">
-            <div class="tile white"><svg class="i"><use href="#i-user"/></svg></div>
-            <div class="main">
-              <div class="t">Signed in</div>
-              <div class="s" id="me"></div>
-              <div class="meta">Synced across your devices</div>
-            </div>
-          </div>
-          <label class="card row-card">
-            <div class="tile"><svg class="i"><use href="#i-clip"/></svg></div>
-            <div class="main">
-              <div class="t">Clipboard capture</div>
-              <div class="s">Save text I copy on approved sites</div>
-            </div>
-            <input id="set-clip" class="switch" type="checkbox">
-          </label>
-          <p class="muted small note">Copied text is stored unencrypted in your account, including anything a site's own copy button puts on the clipboard. Avoid approving password managers or banking sites.</p>
-          <button id="set-trash" class="card row-card">
-            <div class="tile"><svg class="i"><use href="#i-trash"/></svg></div>
-            <div class="main">
-              <div class="t">Trash</div>
-              <div class="s">Restore notes, links and vault items you deleted</div>
-            </div>
-            <svg class="i chev"><use href="#i-chev"/></svg>
-          </button>
-          <h3 class="section-title">Approved sites</h3>
-          <ul id="set-sites" class="list static"></ul>
-          <button id="set-allow" class="wide">Allow this site</button>
-          <p class="muted small note">Approving a site here only turns on clipboard capture for it.</p>
-          <div class="card row-card">
-            <div class="tile"><svg class="i"><use href="#i-fill"/></svg></div>
-            <div class="main">
-              <div class="t">Autofill</div>
-              <div class="s">In Vault, an item saved for the site you're on has a Fill button. Filling asks
-                for access to that site the first time, and never captures your clipboard there.</div>
-            </div>
-          </div>
-          <div class="card row-card">
-            <div class="tile"><svg class="i"><use href="#i-keyboard"/></svg></div>
-            <div class="main">
-              <div class="t">Shortcuts</div>
-              <div class="s">Alt+Shift+S saves the current tab · Alt+Shift+D opens DeskSync</div>
-            </div>
-          </div>
+      <div class="tagbar" id="tagbar" role="group" aria-label="Filter by tag"></div>
+      <div class="listcard">
+        <div class="listhead" id="listhead"></div>
+        <ul class="list" id="list" role="listbox" aria-label="Results"></ul>
+        <div class="count">
+          <button id="to-settings">Settings</button>
+          <span>&#8593;&#8595; move &#183; &#9166; open</span>
         </div>
       </div>
     </div>
 
-    <div class="dock">
-      <nav class="tabs" aria-label="Sections">
-        <button data-tab="notes" class="active"><svg class="i"><use href="#i-note"/></svg>Notes</button>
-        <button data-tab="later"><svg class="i"><use href="#i-bookmark"/></svg>Read later</button>
-        <button data-tab="clips"><svg class="i"><use href="#i-clip"/></svg>Clipboard</button>
-        <button data-tab="vault"><svg class="i"><use href="#i-shield"/></svg>Vault</button>
-      </nav>
-      <button id="note-new" data-for="notes" class="pill"><svg class="i"><use href="#i-plus"/></svg>New note</button>
-      <div data-for="later" class="pill-row">
-        <button id="later-save" class="pill"><svg class="i"><use href="#i-plus"/></svg>Save this tab</button>
-        <button id="later-save-all" class="pill">Save all tabs</button>
-      </div>
-      <button id="clips-paste" data-for="clips" class="pill" title="Save what's on your clipboard now"><svg class="i"><use href="#i-plus"/></svg>Save from clipboard</button>
-      <button id="vault-new" data-for="vault" class="pill vault-only"><svg class="i"><use href="#i-plus"/></svg>New item</button>
-      <button id="signout" data-for="settings" class="pill danger"><svg class="i"><use href="#i-exit"/></svg>Sign out</button>
-    </div>
-
-    <!-- Note editor -->
-    <div id="note-editor" class="editor hidden">
-      <div class="sheet">
-        <header class="hdr">
-          <button id="note-cancel" class="round" title="Close" aria-label="Close"><svg class="i"><use href="#i-back"/></svg></button>
-          <h1 id="note-heading">New note</h1>
-          <button id="note-delete" class="round danger" title="Delete" aria-label="Delete"><svg class="i"><use href="#i-trash"/></svg></button>
-        </header>
-        <div class="scroll pad">
-          <input id="note-title" class="title-input" placeholder="Title" aria-label="Title">
-          <div class="fmt">
-            <button data-cmd="bold" title="Bold"><b>B</b></button>
-            <button data-cmd="italic" title="Italic"><i>I</i></button>
-            <button data-cmd="underline" title="Underline"><u>U</u></button>
-            <button data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
-            <button data-cmd="insertUnorderedList">• List</button>
-            <button data-cmd="hiliteColor" data-val="#fde047">Highlight</button>
-            <select id="note-color" aria-label="Note colour">
-              <option value="yellow">Yellow</option><option value="green">Green</option>
-              <option value="blue">Blue</option><option value="pink">Pink</option>
-              <option value="purple">Purple</option><option value="gray">Gray</option>
-            </select>
-          </div>
-          <div id="note-body" class="body" contenteditable="true" role="textbox" aria-label="Note" aria-multiline="true"></div>
-          <input id="note-tags" placeholder="Tags, comma separated" aria-label="Tags">
-        </div>
-      </div>
-      <div class="dock">
-        <button id="note-save" class="pill light">Save</button>
-      </div>
-    </div>
-
-    <!-- Vault editor -->
-    <div id="vault-editor" class="editor hidden">
-      <div class="sheet">
-        <header class="hdr">
-          <button id="vi-cancel" class="round" title="Close" aria-label="Close"><svg class="i"><use href="#i-back"/></svg></button>
-          <h1 id="vi-heading">New item</h1>
-          <button id="vi-delete" class="round danger" title="Delete" aria-label="Delete"><svg class="i"><use href="#i-trash"/></svg></button>
-        </header>
-        <div class="scroll pad">
-          <input id="vi-title" placeholder="Name (e.g. GitHub)" aria-label="Name">
-          <input id="vi-url" placeholder="Website URL" aria-label="Website URL">
-          <input id="vi-user" placeholder="Username / email" aria-label="Username or email" autocomplete="off">
-          <div class="row">
-            <input id="vi-pass" type="password" placeholder="Password" aria-label="Password" autocomplete="new-password">
-            <button id="vi-show" class="round" title="Show or hide" aria-label="Show or hide password"><svg class="i"><use href="#i-eye"/></svg></button>
-            <button id="vi-gen" class="round" title="Generate" aria-label="Generate password"><svg class="i"><use href="#i-dice"/></svg></button>
-          </div>
-          <textarea id="vi-notes" placeholder="Notes" aria-label="Notes"></textarea>
-        </div>
-      </div>
-      <div class="dock">
-        <button id="vi-save" class="pill light">Save</button>
-      </div>
-    </div>
-
-    <!-- Trash -->
-    <div id="trash" class="editor hidden">
-      <div class="sheet">
-        <header class="hdr">
-          <button id="trash-back" class="round" title="Back" aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button>
-          <h1>Trash</h1>
-        </header>
-        <ul id="trash-list" class="list"></ul>
-        <p class="muted small note">Deleted clips aren't here: their text is erased on delete, so a copied
-          password can't linger in the trash.</p>
-      </div>
-      <div class="dock">
-        <button id="trash-empty" class="pill danger"><svg class="i"><use href="#i-trash"/></svg>Empty trash</button>
-      </div>
-    </div>
+    <section class="detail" id="detail" aria-live="polite" aria-label="Selected item"></section>
+    <section class="screen" id="screen" hidden tabindex="-1"></section>
 
     <div id="toast" class="toast hidden" role="status"></div>
   </section>
@@ -274,6 +110,7 @@
   <script src="config.js"></script>
   <script src="lib/client.js"></script>
   <script src="lib/crypto.js"></script>
+  <script src="lib/markdown.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

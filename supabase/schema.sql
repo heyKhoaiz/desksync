@@ -8,7 +8,9 @@ create table if not exists public.notes (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
   title       text not null default '',
-  body        text not null default '',          -- sanitized HTML (rich text)
+  body        text not null default '',          -- see `format`
+  format      text not null default 'html'
+                check (format in ('html', 'markdown')),  -- 'html' for notes written before the markdown editor
   color       text not null default 'yellow',
   tags        text[] not null default '{}',
   pinned      boolean not null default false,
@@ -27,6 +29,7 @@ create table if not exists public.read_later (
   note        text not null default '',
   is_read     boolean not null default false,
   source      text not null default 'extension',  -- 'extension' | 'android'
+  tags        text[] not null default '{}',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   deleted_at  timestamptz
@@ -39,6 +42,7 @@ create table if not exists public.clips (
   content     text not null check (char_length(content) <= 20000),
   source_url  text,                               -- hostname only, never the full URL
   pinned     boolean not null default false,
+  tags        text[] not null default '{}',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   deleted_at  timestamptz
@@ -46,6 +50,9 @@ create table if not exists public.clips (
 
 -- ---------- Password vault ----------
 -- The server never sees plaintext or the master password.
+-- Vault items have tags too, but they live *inside* the encrypted payload rather
+-- than in a column: a plaintext tag like 'banking' on a row would tell the server
+-- what a login is for, which is exactly what this table exists to avoid.
 -- vault_meta holds the PBKDF2 salt and an encrypted "verifier" used to check the master password.
 create table if not exists public.vault_meta (
   user_id     uuid primary key default auth.uid() references auth.users(id) on delete cascade,
