@@ -295,7 +295,11 @@ input, textarea, select { font: inherit; color: inherit; }
 .d-band.plain { background: transparent; color: inherit; border-bottom: 1px solid var(--line); }
 .d-kind { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; }
 .d-kind .bul { width: 8px; height: 8px; border-radius: 50%; }
-.d-title { margin: 7px 0 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; }
+/* At most three lines: the band does not scroll, so a long title would push
+   the body, the only part that scrolls, out of the pane. */
+.d-title { margin: 7px 0 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  overflow-wrap: anywhere; }
 .d-title.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
   font-weight: 400; line-height: 1.5; word-break: break-all; }
 .d-sub { margin: 5px 0 0; font-size: 12px; opacity: .72; }

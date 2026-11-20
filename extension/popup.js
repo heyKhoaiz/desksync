@@ -901,12 +901,20 @@ function drawDetail(item) {
   pane.append(
     el('header', { class: 'd-band', style: tint },
       el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: `background:${T.color}` }), T.one),
-      el('h2', { class: 'd-title' + (item.mono ? ' mono' : '') }, item.title),
+      el('h2', { class: 'd-title' + (item.mono ? ' mono' : '') }, detailTitle(item)),
       el('p', { class: 'd-sub' }, detailSub(item))),
     tagRow(item),
     el('div', { class: 'd-body' }, ...detailBody(item)),
     el('footer', { class: 'd-foot' }, ...detailFoot(item))
   );
+}
+
+// A clip's title is its whole text, which belongs in the body underneath (it
+// scrolls there). The header takes the first line that has something in it.
+function detailTitle(item) {
+  if (item.kind !== 'clip' || item.secret) return item.title;
+  const first = String(item.title || '').split('\n').find((l) => l.trim()) || '';
+  return first.trim() || 'Empty clip';
 }
 
 function detailSub(item) {

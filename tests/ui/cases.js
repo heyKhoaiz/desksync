@@ -2432,6 +2432,40 @@
       area.top - headBox.bottom < 70, { gap: Math.round(area.top - headBox.bottom) });
     document.getElementById('home').click();
     await wait(80);
+
+    {
+    // A long clip: its text used to be the header's title, and the header does
+    // not scroll, so a pasted file filled the pane and pushed the body and the
+    // buttons out of sight. The header takes the first line; the body scrolls.
+    await reset();
+    const longLine = 'First line of a long clip';
+    const longClip = longLine + '\n' + Array.from({ length: 200 }, (_, i) =>
+      `line ${i} ` + 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(3)).join('\n');
+    state.clips.find((c) => c.id === 'c3').content = longClip;
+    draw();
+    rowFor(longLine).click();
+    await wait(30);
+    const pane = document.getElementById('detail').getBoundingClientRect();
+    const clipBand = document.querySelector('#detail .d-band').getBoundingClientRect();
+    const body = document.querySelector('#detail .d-body');
+    const foot = document.querySelector('#detail .d-foot').getBoundingClientRect();
+    eq('a long clip\'s header shows its first line', document.querySelector('#detail .d-title').textContent, longLine);
+    ok('a long clip\'s header stays small', clipBand.height < pane.height / 3,
+      { band: Math.round(clipBand.height), pane: Math.round(pane.height) });
+    ok('a long clip\'s buttons stay on screen', foot.bottom <= pane.bottom + 0.5 && foot.height > 0,
+      { foot: Math.round(foot.bottom), pane: Math.round(pane.bottom) });
+    ok('a long clip\'s body scrolls', body.scrollHeight > body.clientHeight && body.clientHeight > 80,
+      { scroll: body.scrollHeight, client: body.clientHeight });
+    // A title with no line breaks at all is cut at three lines.
+    state.clips.find((c) => c.id === 'c3').content = 'Rosewood ' + 'word '.repeat(2000);
+    draw();
+    rowFor('Rosewood').click();
+    await wait(30);
+    const t = document.querySelector('#detail .d-title');
+    ok('a one-line clip\'s title is cut at three lines',
+      t.getBoundingClientRect().height <= parseFloat(getComputedStyle(t).lineHeight) * 3 + 1,
+      { h: Math.round(t.getBoundingClientRect().height) });
+    }
   } catch (e) {
     fail++;
     lines.push(`<span class="no">  FAIL</span> threw: ${e && e.message}\n${e && e.stack}`);
