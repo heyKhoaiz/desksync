@@ -12,7 +12,7 @@ that page at a public URL; the dashboard needs both.
 ## 1. Store listing tab
 
 **Name** (75 max)
-> DeskSync – Notes, Read Later, Clipboard & Vault
+> DeskSync: Notes, Logins & Backup Codes
 
 **Summary / short description** (132 max; it is also `description` in the manifest)
 > Keep notes, saved pages, copied text and logins in one private, searchable place. Works offline; sync is optional.
