@@ -81,9 +81,12 @@ def main():
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
-    for f in (ROOT / 'site').iterdir():
+    # Pages in folders (site/note/index.html) are served at /note/.
+    for f in (ROOT / 'site').rglob('*'):
         if f.suffix in ('.html', '.css', '.js'):
-            (OUT / f.name).write_text(fill(f.read_text()))
+            dest = OUT / f.relative_to(ROOT / 'site')
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(fill(f.read_text()))
     body = markdown(fill((ROOT / 'PRIVACY.md').read_text()))
     page = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -102,7 +105,7 @@ def main():
     domain = os.environ.get('SITE_DOMAIN', '').strip()
     if domain:
         (OUT / 'CNAME').write_text(domain + '\n')
-    left = sorted({m for f in OUT.glob('*.html') for m in re.findall(r'\{\{(\w+)\}\}', f.read_text())})
+    left = sorted({m for f in OUT.rglob('*.html') for m in re.findall(r'\{\{(\w+)\}\}', f.read_text())})
     print(f'Built {OUT}')
     if left:
         print('  Not filled in yet (set in .env): ' + ', '.join(left))
