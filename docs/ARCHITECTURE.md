@@ -1,7 +1,8 @@
 # DeskSync — Architecture Plan
 
-One account → notes, read-later, clipboard history and a password vault, synced across
-every Chrome profile and an Android app.
+Notes, read-later, clipboard history and a password vault, saved in the browser first
+(`extension/lib/store.js`) and usable with no account. An optional account syncs them across
+every Chrome profile and the Android app, through Supabase; the phone app requires one.
 
 ## 1. Components
 
@@ -62,13 +63,12 @@ every Chrome profile and an Android app.
 - **Tags:** on all four types, not just notes. Rename, delete and colour live in Settings
   because they act on every item carrying the tag. Vault tags are stored inside the encrypted
   payload, never in a column
-- **Notes:** stored as markdown (`format` column: `markdown`, or `html` for notes written
-  before it, converted on first edit). The editor is the rendered note, edited in place via
-  contenteditable: rendered with `md.render` on open, read back with `md.fromHtml` on every
-  change, so the stored format never depends on the browser's contenteditable quirks. No
-  Save button — a popup can be dismissed at any moment, so it autosaves. No Edit button
-  either: selecting a note shows it ready to type in, since the pane renders it the same
-  either way. Focus stays in the search field until you click into the note or press Enter,
+- **Notes:** plain text (`format` column: `plain`; `html` and `markdown` rows from the older
+  editors are flattened to text by `lib/plaintext.js` when shown, and saved back as `plain`
+  on first edit). The editor is a `<textarea>`: no toolbar, no markdown, no checklists, and
+  undo, selection and spellcheck are the browser's own. No Save button — a popup can be
+  dismissed at any moment, so it autosaves. No Edit button either: selecting a note shows it
+  ready to type in. Focus stays in the search field until you click into the note or press Enter,
   so the list still arrows. Selecting without typing does not write
 - **Vault editor:** create and edit logins, with a generator and show/hide. Explicit Save,
   unlike notes: a half-typed password overwrites a working one
@@ -87,7 +87,7 @@ every Chrome profile and an Android app.
 | Screen / feature | Notes |
 |---|---|
 | Login | same Supabase account |
-| Notes | list + editor; renders the limited HTML as text spans; edits text only, keeping the stored body unless the text changes. **Needs updating for markdown:** the extension now writes `format='markdown'`, and `note_html.dart` would show the markup as literal text |
+| Notes | list + plain-text editor; reads `format` and flattens older `html`/`markdown` notes to text (`note_html.dart`); saves as `format='plain'`, keeping the stored body untouched unless the text changes |
 | Read later | list; **Share → DeskSync** intent saves links from any app |
 | Clipboard | history synced from desktop; "save current clipboard" button (Android 10+ blocks background clipboard reading) |
 | Vault | biometric unlock (key wrapped in Android Keystore), **AutofillService** for other apps and browsers |
@@ -109,4 +109,4 @@ every Chrome profile and an Android app.
   `optional_host_permissions`. Supabase calls rely on CORS, not host permissions.
 - Granted origins are not themselves the capture allowlist: capture runs only on sites explicitly
   approved in Settings, so filling a password on a site does not start recording copies there.
-- Declare that vault data is end-to-end encrypted, and that clipboard text is stored in the user's account.
+- Declare that vault data is end-to-end encrypted, and that clipboard text is stored on the device, and in the user's account only if they sign in.

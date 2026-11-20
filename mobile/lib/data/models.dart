@@ -3,6 +3,7 @@ class Note {
     required this.id,
     required this.title,
     required this.body,
+    this.format = 'plain',
     required this.color,
     required this.tags,
     required this.pinned,
@@ -13,6 +14,8 @@ class Note {
         id: r['id'] as String,
         title: r['title'] as String? ?? '',
         body: r['body'] as String? ?? '',
+        // The column's default is 'html': a row without one predates plain text.
+        format: r['format'] as String? ?? 'html',
         color: r['color'] as String? ?? 'yellow',
         tags: (r['tags'] as List?)?.cast<String>() ?? const [],
         pinned: r['pinned'] as bool? ?? false,
@@ -21,7 +24,8 @@ class Note {
 
   final String id;
   final String title;
-  final String body; // limited HTML, shared with the extension
+  final String body; // see `format`
+  final String format; // 'plain'; 'html' or 'markdown' for notes from the older editors
   final String color;
   final List<String> tags;
   final bool pinned;
@@ -57,12 +61,12 @@ class ReadLaterItem {
 
 /// Same matching as the extension's notes search: `#tag` is an exact tag match,
 /// anything else searches title, text and tags. Pinned first, then newest.
-List<Note> filterNotes(List<Note> notes, String query, String Function(String html) textOf) {
+List<Note> filterNotes(List<Note> notes, String query, String Function(Note note) textOf) {
   final q = query.trim().toLowerCase();
   final out = notes.where((n) {
     if (q.isEmpty) return true;
     if (q.startsWith('#')) return n.tags.any((t) => t.toLowerCase() == q.substring(1));
-    return '${n.title} ${textOf(n.body)} ${n.tags.join(' ')}'.toLowerCase().contains(q);
+    return '${n.title} ${textOf(n)} ${n.tags.join(' ')}'.toLowerCase().contains(q);
   }).toList()
     ..sort((a, b) {
       if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
@@ -71,8 +75,36 @@ List<Note> filterNotes(List<Note> notes, String query, String Function(String ht
   return out;
 }
 
-List<String> parseTags(String input) => input
-    .split(',')
-    .map((t) => t.trim().replaceFirst(RegExp(r'^#'), ''))
-    .where((t) => t.isNotEmpty)
-    .toList();
+// The rules for tag names, the same as the extension's (extension/lib/tags.js),
+// so a tag made on either is the same tag:
+//   letters in any language, numbers, - and _; spaces, "." and "/" become -;
+//   lower case; 1 to 32 characters; up to 10 on one item.
+const maxTagLength = 32;
+const maxTagsPerItem = 10;
+final _notTagChar = RegExp(r'[^\p{L}\p{N}\p{M}_-]', unicode: true);
+
+String normalizeTag(String raw) {
+  var t = raw.trim().replaceFirst(RegExp(r'^#+'), '').toLowerCase();
+  t = t
+      .replaceAll(RegExp(r'[\s./]+'), '-')
+      .replaceAll(_notTagChar, '')
+      .replaceAll(RegExp(r'-{2,}'), '-')
+      .replaceAll(RegExp(r'^[-_]+|[-_]+$'), '');
+  final chars = t.runes.toList();
+  if (chars.length > maxTagLength) {
+    t = String.fromCharCodes(chars.take(maxTagLength)).replaceAll(RegExp(r'[-_]+$'), '');
+  }
+  return t;
+}
+
+/// Tags typed as a comma separated list, made to follow the rules: normalised,
+/// no repeats, no empties, at most [maxTagsPerItem].
+List<String> parseTags(String input) {
+  final out = <String>[];
+  for (final part in input.split(',')) {
+    final t = normalizeTag(part);
+    if (t.isNotEmpty && !out.contains(t)) out.add(t);
+    if (out.length == maxTagsPerItem) break;
+  }
+  return out;
+}

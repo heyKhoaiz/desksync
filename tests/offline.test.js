@@ -1,61 +1,105 @@
-// Offline cache and outbox tests for extension/lib/client.js.
+// Local store and sync tests for extension/lib/store.js and extension/lib/client.js.
 //
-// Runs the real client.js inside a vm with chrome.storage and supabase stubbed,
-// so the queue-and-replay behaviour can be checked without a browser or network.
+// Runs the real files inside a vm with chrome.storage and Supabase stubbed. The
+// Supabase stub keeps a little server of its own per table, so a test can check
+// both what is on this device and what reached the server.
 //   node tests/offline.test.js      (or: make test-ext)
 const vm = require('vm');
 const fs = require('fs');
 const assert = require('assert');
 
-function makeCtx({ online = true, failNet = false } = {}) {
-  const store = {};
-  const calls = [];
+function makeCtx({ signedIn = true } = {}) {
+  const local = {};
   const chrome = {
     storage: {
       local: {
         async get(k) {
-          if (k === null) return { ...store };
-          if (Array.isArray(k)) return Object.fromEntries(k.filter((x) => x in store).map((x) => [x, store[x]]));
-          return k in store ? { [k]: store[k] } : {};
+          if (k === null) return structuredClone(local);
+          if (Array.isArray(k)) return structuredClone(Object.fromEntries(k.filter((x) => x in local).map((x) => [x, local[x]])));
+          return k in local ? structuredClone({ [k]: local[k] }) : {};
         },
-        async set(o) { Object.assign(store, o); },
-        async remove(keys) { for (const k of [].concat(keys)) delete store[k]; }
+        async set(o) { Object.assign(local, structuredClone(o)); },
+        async remove(keys) { for (const k of [].concat(keys)) delete local[k]; }
       }
     }
   };
-  // Minimal PostgREST-ish builder. A "network failure" rejects with a TypeError,
-  // the way fetch does, which is what isOffline() keys on.
-  const settle = (value) => (ctx.__failNet
-    ? Promise.reject(new TypeError('Failed to fetch'))
-    : Promise.resolve(value));
+
+  const server = { notes: [], read_later: [], clips: [], vault_items: [], vault_meta: null };
+  const calls = [];
+  // A failed fetch comes back from supabase-js as an error, not a throw.
+  const answer = (value) => Promise.resolve(ctx.__offline
+    ? { data: null, error: { message: 'TypeError: Failed to fetch' } }
+    : value);
+
   function from(table) {
-    if (ctx.__override) return ctx.__override(table);
-    const b = {
-      select() { return b; }, is() { return b; }, not() { return b; },
-      order() { return b; }, limit() { return b; },
-      eq(_c, v) { b._id = v; return b; },
-      insert(row) { calls.push(['insert', table, row]); b._row = row; return b; },
-      update(patch) { calls.push(['update', table, b._id, patch]); b._row = patch; return b; },
-      delete() { calls.push(['delete', table]); return b; },
-      single() { return settle({ data: b._row, error: null }); },
-      maybeSingle() { return settle({ data: null, error: null }); },
-      then(onOk, onErr) { return settle({ data: ctx.__rows || [], error: null }).then(onOk, onErr); }
+    if (table === 'vault_meta') {
+      return {
+        select() { return { maybeSingle() { return answer({ data: structuredClone(server.vault_meta), error: null }); } }; },
+        upsert(row) {
+          calls.push(['upsert', table, row]);
+          if (!ctx.__offline) server.vault_meta = { ...row, user_id: 'u1' };
+          return answer({ data: null, error: null });
+        }
+      };
+    }
+    return {
+      upsert(row) {
+        calls.push(['upsert', table, row]);
+        const refuse = ctx.__refuse?.(table, row);
+        if (refuse && !ctx.__offline) return Promise.resolve({ data: null, error: { message: refuse } });
+        if (!ctx.__offline) {
+          const i = server[table].findIndex((r) => r.id === row.id);
+          // The server's trigger stamps its own updated_at, like the real one.
+          const stored = { ...(i >= 0 ? server[table][i] : {}), ...row, updated_at: new Date(Date.now() + 1000).toISOString() };
+          if (i >= 0) server[table][i] = stored; else server[table].push(stored);
+        }
+        return answer({ data: null, error: null });
+      },
+      delete() {
+        return {
+          eq(_c, id) {
+            calls.push(['delete', table, id]);
+            if (!ctx.__offline) server[table] = server[table].filter((r) => r.id !== id);
+            return answer({ data: null, error: null });
+          },
+          not() {
+            calls.push(['delete-all', table]);
+            if (!ctx.__offline) server[table] = [];
+            return answer({ data: null, error: null });
+          }
+        };
+      },
+      select() {
+        const q = { order() { return q; }, range(a, b) {
+          calls.push(['select', table]);
+          return answer({ data: structuredClone(server[table].slice(a, b + 1)), error: null });
+        } };
+        return q;
+      }
     };
-    return b;
   }
+
   const ctx = {
-    console, crypto: require('crypto').webcrypto, navigator: { onLine: online },
+    console: { ...console, error() {}, warn() {} }, setTimeout, clearTimeout,
+    crypto: require('crypto').webcrypto, structuredClone, navigator: { onLine: true },
     chrome,
     DESKSYNC_CONFIG: { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'k' },
-    supabase: { createClient: () => ({ from, auth: { getSession: async () => ({ data: { session: null } }) } }) },
-    __calls: calls, __store: store, __rows: [], __failNet: failNet, __override: null
+    supabase: { createClient: () => ({ from, auth: {
+      getSession: async () => ({ data: { session: ctx.__user ? { user: ctx.__user } : null } })
+    } }) },
+    __local: local, __server: server, __calls: calls, __offline: false,
+    __user: signedIn ? { id: 'u1' } : null, __refuse: null
   };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync('extension/lib/store.js', 'utf8'), ctx);
   vm.runInContext(fs.readFileSync('extension/lib/client.js', 'utf8'), ctx);
+  // Writes ask sync to run "soon"; in tests sync runs only when a test says so.
+  vm.runInContext('sync.soon = () => {}', ctx);
   return ctx;
 }
 
 const run = async (ctx, code) => vm.runInContext(`(async () => { ${code} })()`, ctx);
+const raw = (ctx, table) => run(ctx, `return store.raw('${table}')`);
 let passed = 0;
 async function test(name, fn) {
   try { await fn(); console.log('  ok  ' + name); passed++; }
@@ -63,132 +107,388 @@ async function test(name, fn) {
 }
 
 (async () => {
-  console.log('offline cache + outbox');
+  console.log('local store');
 
-  await test('insert while offline queues and returns a pending row', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
+  await test('an insert is saved on this device with the schema defaults', async () => {
+    const ctx = makeCtx({ signedIn: false });
     const row = await run(ctx, `return db.insert('notes', { title: 'Hi' })`);
-    assert.strictEqual(row._pending, true, 'row marked pending');
-    assert.ok(row.id, 'row got a client-generated id');
-    assert.strictEqual(row.color, 'yellow', 'schema defaults applied locally');
-    assert.strictEqual(row.tags.length, 0, 'array default applied');
-    const box = await run(ctx, `return outbox.all()`);
-    assert.strictEqual(box.length, 1);
-    assert.strictEqual(box[0].op, 'insert');
-  });
-
-  await test('list while offline returns cache plus queued writes', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [{ id: 'a', title: 'Cached', updated_at: '2024-01-01T00:00:00Z' }])`);
-    await run(ctx, `await db.insert('notes', { title: 'New' })`);
+    assert.ok(row.id, 'a client-generated id');
+    assert.strictEqual(row.color, 'yellow');
+    assert.strictEqual(row.format, 'plain');
+    assert.strictEqual(row.tags.length, 0);
     const rows = await run(ctx, `return db.list('notes')`);
-    assert.strictEqual(rows.length, 2, 'cached row + queued insert');
-    assert.ok(rows.some((r) => r.title === 'Cached') && rows.some((r) => r.title === 'New'));
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].title, 'Hi');
   });
 
-  await test('offline edit of an offline row shows the edit', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [])`);
-    const row = await run(ctx, `return db.insert('notes', { title: 'First' })`);
-    await run(ctx, `await db.update('notes', ${JSON.stringify(row.id)}, { title: 'Second' })`);
+  await test('rows come back without the local bookkeeping fields', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { title: 'x' })`);
+    const [row] = await run(ctx, `return db.list('notes')`);
+    assert.ok(!Object.keys(row).some((k) => k.startsWith('_')), Object.keys(row).join(','));
+  });
+
+  await test('an upsert of an existing row edits it and keeps the other columns', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.upsert('notes', { id: 'n1', title: 'Old', color: 'mint' })`);
+    await run(ctx, `await db.upsert('notes', { id: 'n1', title: 'New' })`);
     const rows = await run(ctx, `return db.list('notes')`);
-    assert.strictEqual(rows.length, 1, 'still one row, not two');
-    assert.strictEqual(rows[0].title, 'Second', 'update applied over the queued insert');
+    assert.strictEqual(rows.length, 1, 'still one row');
+    assert.strictEqual(rows[0].title, 'New');
+    assert.strictEqual(rows[0].color, 'mint', 'colour not reset');
   });
 
-  await test('offline delete hides the row', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [{ id: 'a', title: 'Gone', updated_at: '2024-01-01T00:00:00Z' }])`);
+  await test('update of a row that does not exist does nothing', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    const r = await run(ctx, `return db.update('notes', 'nope', { title: 'x' })`);
+    assert.strictEqual(r, null);
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0);
+  });
+
+  await test('two quick writes both land', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await Promise.all([db.insert('clips', { content: 'a' }), db.insert('clips', { content: 'b' })])`);
+    assert.strictEqual((await run(ctx, `return db.list('clips')`)).length, 2);
+  });
+
+  await test('delete moves a row to the trash, restore brings it back', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { id: 'a', title: 'Gone' })`);
     await run(ctx, `await db.remove('notes', 'a')`);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`)).length, 0, 'hidden from the list');
+    const trash = await run(ctx, `return db.listDeleted('notes')`);
+    assert.strictEqual(trash.length, 1);
+    assert.ok(trash[0].deleted_at);
+    await run(ctx, `await db.restore('notes', 'a')`);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`)).length, 1, 'back in the list');
+  });
+
+  await test('delete can blank columns that should not outlive it', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('clips', { id: 'c', content: 'secret' })`);
+    await run(ctx, `await db.remove('clips', 'c', { content: '' })`);
+    const [t] = await run(ctx, `return db.listDeleted('clips')`);
+    assert.strictEqual(t.content, '');
+  });
+
+  await test('purging a row the server never had removes it outright', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { id: 'a' }); await db.remove('notes', 'a'); await db.purge('notes', 'a')`);
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0);
+  });
+
+  await test('purgeAll empties the trash and leaves live rows alone', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { id: 'a' }); await db.insert('notes', { id: 'b' }); await db.remove('notes', 'a')`);
+    await run(ctx, `await db.purgeAll('notes')`);
+    assert.strictEqual((await run(ctx, `return db.listDeleted('notes')`)).length, 0);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`)).length, 1);
+  });
+
+  await test('list sorts newest first and honours the limit', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `
+      await db.insert('clips', { id: 'old', created_at: '2024-01-01T00:00:00Z' });
+      await db.insert('clips', { id: 'new', created_at: '2025-01-01T00:00:00Z' });
+      await db.insert('clips', { id: 'mid', created_at: '2024-06-01T00:00:00Z' });`);
+    const rows = await run(ctx, `return db.list('clips', { order: 'created_at', limit: 2 })`);
+    assert.deepStrictEqual(rows.map((r) => r.id), ['new', 'mid']);
+  });
+
+  console.log('\nsync');
+
+  await test('signed out, nothing goes to the network', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { title: 'local only' })`);
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(ctx.__calls.length, 0);
+    assert.strictEqual(res.pending, 1, 'still waiting to sync');
+  });
+
+  await test('signed in, changed rows are pushed and no longer pending', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'Hi' })`);
+    assert.strictEqual(await run(ctx, `return sync.pending()`), 1);
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.synced, 1);
+    assert.strictEqual(res.pending, 0);
+    assert.strictEqual(ctx.__server.notes[0].title, 'Hi');
+    assert.ok(!Object.keys(ctx.__server.notes[0]).some((k) => k.startsWith('_')), 'no local fields sent');
+  });
+
+  await test('rows made elsewhere are pulled in, tombstones included', async () => {
+    const ctx = makeCtx();
+    ctx.__server.notes.push({ id: 'r1', title: 'From the phone', updated_at: '2025-01-01T00:00:00Z', deleted_at: null });
+    ctx.__server.notes.push({ id: 'r2', title: 'Deleted there', updated_at: '2025-01-01T00:00:00Z', deleted_at: '2025-01-02T00:00:00Z' });
+    await run(ctx, `await sync.run()`);
+    assert.deepStrictEqual((await run(ctx, `return db.list('notes')`)).map((r) => r.id), ['r1']);
+    assert.deepStrictEqual((await run(ctx, `return db.listDeleted('notes')`)).map((r) => r.id), ['r2']);
+  });
+
+  await test('offline, a sync changes nothing and does not throw', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { title: 'later' })`);
+    ctx.__offline = true;
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.pulled, false);
+    assert.strictEqual(res.pending, 1, 'kept for the next run');
+    ctx.__offline = false;
+    assert.strictEqual((await run(ctx, `return sync.run()`)).pending, 0, 'and pushed once back online');
+  });
+
+  await test('an unpushed local edit wins over the server copy', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'v1' }); await sync.run();`);
+    ctx.__offline = true;
+    await run(ctx, `await db.update('notes', 'n1', { title: 'mine' })`);
+    ctx.__server.notes[0].title = 'theirs';
+    await run(ctx, `await store.mergeRemote('notes', ${JSON.stringify(ctx.__server.notes)})`);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`))[0].title, 'mine');
+  });
+
+  await test('a row nobody changed here takes the server copy', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'v1' }); await sync.run();`);
+    ctx.__server.notes[0].title = 'edited on the phone';
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`))[0].title, 'edited on the phone');
+  });
+
+  await test('a synced row the server no longer has was purged elsewhere, and goes', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1' }); await sync.run();`);
+    ctx.__server.notes = [];
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0);
+  });
+
+  await test('purging a synced row deletes the server copy too', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1' }); await sync.run();`);
+    await run(ctx, `await db.remove('notes', 'n1'); await db.purge('notes', 'n1');`);
+    assert.strictEqual((await run(ctx, `return db.listDeleted('notes')`)).length, 0, 'gone from the trash at once');
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual(ctx.__server.notes.length, 0, 'and from the server');
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0, 'and the marker is cleared');
+  });
+
+  await test('an edit made while a push is in flight is pushed next time', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'v1' })`);
+    const [before] = await raw(ctx, 'notes');
+    await new Promise((r) => setTimeout(r, 5));
+    await run(ctx, `await db.update('notes', 'n1', { title: 'v2' })`);
+    await run(ctx, `await store.markPushed('notes', 'n1', ${JSON.stringify(before.updated_at)})`);
+    assert.strictEqual(await run(ctx, `return sync.pending()`), 1, 'still dirty');
+  });
+
+  await test('a column the database lacks is dropped, and the user is told', async () => {
+    const ctx = makeCtx();
+    const warnings = [];
+    ctx.__warn = (m) => warnings.push(m);
+    await run(ctx, `sync.onWarn = __warn`);
+    ctx.__refuse = (t, row) => ('format' in row ? "Could not find the 'format' column of 'notes' in the schema cache" : null);
+    await run(ctx, `await db.insert('notes', { id: 'n1', body: 'must survive' }); await sync.run();`);
+    assert.strictEqual(ctx.__server.notes[0].body, 'must survive');
+    assert.ok(!('format' in ctx.__server.notes[0]));
+    assert.match(warnings.join(), /001_tags_and_markdown/);
+  });
+
+  await test('a database without migration 002 gets markdown, this device keeps plain', async () => {
+    const ctx = makeCtx();
+    const warnings = [];
+    ctx.__warn = (m) => warnings.push(m);
+    await run(ctx, `sync.onWarn = __warn`);
+    ctx.__refuse = (t, row) => (row.format === 'plain' ? 'new row for relation "notes" violates check constraint "notes_format_check"' : null);
+    await run(ctx, `await db.insert('notes', { id: 'n1', body: 'line one\\nline two' }); await sync.run();`);
+    assert.strictEqual(ctx.__server.notes[0].format, 'markdown');
+    assert.strictEqual(ctx.__server.notes[0].body, 'line one\nline two');
+    assert.match(warnings.join(), /002_plain_text_notes/);
+  });
+
+  await test('a row the server refuses stays on this device and stops retrying', async () => {
+    const ctx = makeCtx();
+    ctx.__refuse = () => 'new row violates row-level security policy';
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'kept' }); await sync.run();`);
+    assert.strictEqual(await run(ctx, `return sync.pending()`), 0, 'not retried forever');
+    assert.strictEqual((await run(ctx, `return db.list('notes')`))[0].title, 'kept', 'not lost to the pull either');
+    const [r] = await raw(ctx, 'notes');
+    assert.match(r._syncError, /row-level security/);
+  });
+
+  console.log('\naccounts');
+
+  await test('signing in takes this device\'s data into the account', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'written signed out' })`);
+    await run(ctx, `await store.adopt('u1'); await sync.run();`);
+    assert.strictEqual(ctx.__server.notes[0]?.title, 'written signed out');
+  });
+
+  await test('a different account gets everything here, even rows the last one had', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.adopt('user-a'); await db.insert('notes', { id: 'n1', title: 'from A' }); await sync.run();`);
+    // Signed out of A, signed in to B: B's server starts empty.
+    ctx.__server.notes = [];
+    ctx.__user = { id: 'user-b' };
+    await run(ctx, `await store.adopt('user-b'); await sync.run();`);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`)).length, 1, 'not dropped as "purged elsewhere"');
+    assert.strictEqual(ctx.__server.notes[0]?.title, 'from A', 'uploaded to B');
+  });
+
+  await test('the same account signing back in does not upload everything again', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.adopt('u1'); await db.insert('notes', { id: 'n1' }); await sync.run();`);
+    await run(ctx, `await store.adopt('u1')`);
+    assert.strictEqual(await run(ctx, `return sync.pending()`), 0);
+  });
+
+  await test('user_id is never sent: the server sets it', async () => {
+    const ctx = makeCtx();
+    ctx.__server.notes.push({ id: 'n1', user_id: 'someone-else', title: 'x', updated_at: '2025-01-01T00:00:00Z' });
+    await run(ctx, `await sync.run(); await db.update('notes', 'n1', { title: 'y' }); await sync.run();`);
+    const pushed = ctx.__calls.filter((c) => c[0] === 'upsert' && c[1] === 'notes');
+    assert.ok(pushed.length && pushed.every((c) => !('user_id' in c[2])));
+  });
+
+  await test('erasing this device removes everything', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', {}); await store.setVaultMeta({ salt: 's', iterations: 1, verifier_iv: 'i', verifier_ct: 'c' }); await store.clear();`);
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0);
+    assert.strictEqual(await run(ctx, `return store.vaultMeta()`), null);
+  });
+
+  console.log('\nvault');
+  const META = (salt) => ({ salt, iterations: 1, verifier_iv: 'i-' + salt, verifier_ct: 'c-' + salt });
+
+  await test('a vault set up here reaches the account', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v1', iv: 'a', ciphertext: 'b' }); await sync.run();`);
+    assert.strictEqual(ctx.__server.vault_meta?.salt, 'mine');
+    assert.strictEqual(ctx.__server.vault_items.length, 1);
+  });
+
+  await test('the account\'s vault comes down to a device that has none', async () => {
+    const ctx = makeCtx();
+    ctx.__server.vault_meta = { ...META('theirs'), user_id: 'u1' };
+    ctx.__server.vault_items.push({ id: 'v1', iv: 'a', ciphertext: 'b', updated_at: '2025-01-01T00:00:00Z' });
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual((await run(ctx, `return store.vaultMeta()`)).salt, 'theirs');
+    assert.strictEqual((await run(ctx, `return db.list('vault_items')`)).length, 1);
+  });
+
+  await test('two different vaults are not merged; vault items stand still', async () => {
+    const ctx = makeCtx();
+    ctx.__server.vault_meta = { ...META('theirs'), user_id: 'u1' };
+    ctx.__server.vault_items.push({ id: 'v-theirs', iv: 'a', ciphertext: 'b', updated_at: '2025-01-01T00:00:00Z' });
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v-mine' });`);
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.vaultConflict, true);
+    assert.deepStrictEqual(ctx.__server.vault_items.map((r) => r.id), ['v-theirs'], 'nothing pushed');
+    assert.deepStrictEqual((await run(ctx, `return db.list('vault_items')`)).map((r) => r.id), ['v-mine'], 'nothing pulled');
+  });
+
+  await test('keeping the account\'s vault replaces this device\'s', async () => {
+    const ctx = makeCtx();
+    ctx.__server.vault_meta = { ...META('theirs'), user_id: 'u1' };
+    ctx.__server.vault_items.push({ id: 'v-theirs', iv: 'a', ciphertext: 'b', updated_at: '2025-01-01T00:00:00Z' });
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v-mine' }); await sync.run();`);
+    await run(ctx, `await sync.resolveVault('account')`);
+    assert.strictEqual((await run(ctx, `return store.vaultMeta()`)).salt, 'theirs');
+    assert.deepStrictEqual((await run(ctx, `return db.list('vault_items')`)).map((r) => r.id), ['v-theirs']);
+    assert.strictEqual(await run(ctx, `return store.vaultConflict()`), null);
+  });
+
+  await test('keeping this device\'s vault replaces the account\'s', async () => {
+    const ctx = makeCtx();
+    ctx.__server.vault_meta = { ...META('theirs'), user_id: 'u1' };
+    ctx.__server.vault_items.push({ id: 'v-theirs', iv: 'a', ciphertext: 'b', updated_at: '2025-01-01T00:00:00Z' });
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v-mine' }); await sync.run();`);
+    await run(ctx, `await sync.resolveVault('device')`);
+    assert.strictEqual(ctx.__server.vault_meta.salt, 'mine');
+    assert.deepStrictEqual(ctx.__server.vault_items.map((r) => r.id), ['v-mine']);
+    assert.deepStrictEqual((await run(ctx, `return db.list('vault_items')`)).map((r) => r.id), ['v-mine']);
+  });
+
+  console.log('\nexport and import');
+
+  await test('an export holds every row, tombstones and the vault check included', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { id: 'a' }); await db.insert('notes', { id: 'b' }); await db.remove('notes', 'b');
+      await store.setVaultMeta(${JSON.stringify(META('mine'))});`);
+    const data = await run(ctx, `return store.exportAll()`);
+    assert.strictEqual(data.app, 'desksync');
+    assert.strictEqual(data.tables.notes.length, 2);
+    assert.strictEqual(data.vault_meta.salt, 'mine');
+    assert.ok(!JSON.stringify(data).includes('"_dirty"'), 'no local bookkeeping in the file');
+  });
+
+  await test('import merges: new rows come in, newer copies win, older ones do not', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await db.insert('notes', { id: 'kept', title: 'mine, newer' })`);
+    const file = { app: 'desksync', version: 1, tables: { notes: [
+      { id: 'kept', title: 'theirs, older', updated_at: '2000-01-01T00:00:00Z' },
+      { id: 'new', title: 'only in the file', updated_at: '2000-01-01T00:00:00Z' }
+    ] } };
+    const res = await run(ctx, `return store.importAll(${JSON.stringify(file)})`);
+    assert.strictEqual(res.counts.notes, 1);
+    const titles = (await run(ctx, `return db.list('notes')`)).map((r) => r.title).sort();
+    assert.deepStrictEqual(titles, ['mine, newer', 'only in the file']);
+  });
+
+  await test('import skips vault items locked under a different master password', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))})`);
+    const file = { app: 'desksync', version: 1, vault_meta: META('theirs'),
+      tables: { vault_items: [{ id: 'v1', iv: 'a', ciphertext: 'b', updated_at: '2025-01-01T00:00:00Z' }] } };
+    const res = await run(ctx, `return store.importAll(${JSON.stringify(file)})`);
+    assert.strictEqual(res.skippedVault, 1);
+    assert.strictEqual((await run(ctx, `return db.list('vault_items')`)).length, 0);
+  });
+
+  await test('a file that is not a DeskSync export is refused', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await assert.rejects(run(ctx, `return store.importAll({ hello: 'world' })`), /Not a DeskSync export/);
+  });
+
+  console.log('\nupgrades');
+
+  await test('the old cache and outbox move into the store', async () => {
+    const ctx = makeCtx();
+    ctx.__local['cache:notes'] = [{ id: 'a', title: 'Cached', updated_at: '2024-01-01T00:00:00Z' }];
+    ctx.__local.outbox = [
+      { op: 'insert', table: 'notes', payload: { id: 'b', title: 'Typed offline' } },
+      { op: 'update', table: 'notes', rowId: 'a', payload: { title: 'Edited offline' } }
+    ];
+    await run(ctx, `await store.migrate()`);
     const rows = await run(ctx, `return db.list('notes')`);
-    assert.strictEqual(rows.length, 0);
+    assert.deepStrictEqual(rows.map((r) => r.title).sort(), ['Edited offline', 'Typed offline']);
+    assert.strictEqual(await run(ctx, `return sync.pending()`), 2, 'both offline writes still go to the server');
+    assert.ok(!('cache:notes' in ctx.__local) && !('outbox' in ctx.__local), 'old keys removed');
   });
 
-  await test('list with no cache and no network still throws', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await assert.rejects(run(ctx, `return db.list('notes')`));
+  console.log('\ndrafts');
+
+  await test('a draft is written once and then dropped', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await drafts.put({ table: 'notes', row: { id: 'n1', title: 'Left behind' } })`);
+    assert.strictEqual((await run(ctx, `return drafts.flush()`)).saved, 1);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`))[0].title, 'Left behind');
+    assert.strictEqual((await run(ctx, `return drafts.flush()`)).saved, 0, 'and not written again');
   });
 
-  await test('server errors are not swallowed as offline', async () => {
-    const ctx = makeCtx({ online: true });
-    ctx.__override = () => ({
-      insert: () => ({ select: () => ({ single: async () => ({
-        data: null, error: { message: 'new row violates row-level security policy' }
-      }) }) })
-    });
-    let caught = null;
-    try { await run(ctx, `return db.insert('notes', { title: 'x' })`); }
-    catch (e) { caught = e; }
-    assert.ok(caught, 'RLS failure surfaces instead of queueing');
-    assert.match(caught.message, /row-level security/);
-    const box = await run(ctx, `return outbox.all()`);
-    assert.strictEqual(box.length, 0, 'nothing queued for a real server error');
+  await test('a draft a popup is still typing into is left alone', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await drafts.put({ table: 'notes', row: { id: 'n1', title: 'Still typing' } })`);
+    assert.strictEqual((await run(ctx, `return drafts.flush({ minAgeMs: 60000 })`)).saved, 0);
+    assert.ok(await run(ctx, `return drafts.get()`), 'still there for the next sweep');
   });
 
-  await test('flush replays queued writes in order, then empties', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [])`);
-    const row = await run(ctx, `return db.insert('notes', { title: 'A' })`);
-    await run(ctx, `await db.update('notes', ${JSON.stringify(row.id)}, { pinned: true })`);
-    assert.strictEqual((await run(ctx, `return outbox.all()`)).length, 2);
-    // Bring the network back up and record what gets replayed.
-    ctx.navigator.onLine = true;
-    ctx.__failNet = false;
-    const seen = [];
-    ctx.__override = (t) => ({
-      insert: (r) => ({ select: () => ({ single: async () => { seen.push(['insert', t, r.title]); return { data: r, error: null }; } }) }),
-      update: (p) => ({ eq: () => ({ select: () => ({ single: async () => { seen.push(['update', t, p]); return { data: p, error: null }; } }) }) })
-    });
-    const res = await run(ctx, `return outbox.flush()`);
-    assert.strictEqual(res.synced, 2);
-    assert.strictEqual((await run(ctx, `return outbox.all()`)).length, 0, 'outbox emptied');
-    assert.strictEqual(seen.map((s) => s[0]).join(','), 'insert,update', 'replayed oldest first');
-  });
-
-  await test('flush drops a write the server rejects, keeping the queue moving', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    ctx.console = { ...console, error() {} };   // this test expects a rejection; keep the output clean
-    await run(ctx, `await db.insert('notes', { title: 'bad' })`);
-    await run(ctx, `await db.insert('notes', { title: 'good' })`);
-    ctx.navigator.onLine = true;
-    ctx.__failNet = false;
-    let n = 0;
-    ctx.__override = () => ({
-      insert: (r) => ({ select: () => ({ single: async () => {
-        n++;
-        if (n === 1) return { data: null, error: { message: 'violates check constraint' } };
-        return { data: r, error: null };
-      } }) })
-    });
-    const res = await run(ctx, `return outbox.flush()`);
-    assert.strictEqual(res.synced, 2, 'both entries cleared');
-    assert.strictEqual((await run(ctx, `return outbox.all()`)).length, 0);
-  });
-
-  await test('flush stops at the first entry that is still offline', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await db.insert('notes', { title: 'one' })`);
-    await run(ctx, `await db.insert('notes', { title: 'two' })`);
-    const res = await run(ctx, `return outbox.flush()`);
-    assert.strictEqual(res.synced, 0, 'nothing synced while still offline');
-    assert.strictEqual((await run(ctx, `return outbox.all()`)).length, 2, 'queue intact');
-  });
-
-  await test('cache.claim wipes another account\'s data', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [{ id: 'a' }]); await cache.claim('user-1');`);
-    await run(ctx, `await db.insert('notes', { title: 'mine' })`);
-    assert.ok(ctx.__store['cache:notes'], 'cache present for user-1');
-    await run(ctx, `await cache.claim('user-2')`);
-    assert.strictEqual(ctx.__store['cache:notes'], undefined, 'cached rows cleared');
-    assert.strictEqual(ctx.__store.outbox, undefined, 'queued writes cleared');
-  });
-
-  await test('cache.claim keeps data for the same account', async () => {
-    const ctx = makeCtx({ online: false, failNet: true });
-    await run(ctx, `await cache.set('notes', [{ id: 'a' }]); await cache.claim('user-1');`);
-    await run(ctx, `await cache.claim('user-1')`);
-    assert.ok(ctx.__store['cache:notes'], 'cache kept');
+  await test('signing out drops the draft with everything else', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await drafts.put({ table: 'notes', row: { id: 'n1' } }); await db.insert('notes', {}); await store.clear();`);
+    assert.strictEqual(await run(ctx, `return drafts.get()`), null);
+    assert.strictEqual((await raw(ctx, 'notes')).length, 0);
   });
 
   console.log(`\n${passed} passed`);

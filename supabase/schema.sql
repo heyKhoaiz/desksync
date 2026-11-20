@@ -9,8 +9,8 @@ create table if not exists public.notes (
   user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
   title       text not null default '',
   body        text not null default '',          -- see `format`
-  format      text not null default 'html'
-                check (format in ('html', 'markdown')),  -- 'html' for notes written before the markdown editor
+  format      text not null default 'html'      -- every current writer sends 'plain'; an old phone build sends nothing and writes HTML
+                check (format in ('plain', 'html', 'markdown')),  -- 'html' / 'markdown' for notes written by the older editors
   color       text not null default 'yellow',
   tags        text[] not null default '{}',
   pinned      boolean not null default false,

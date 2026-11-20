@@ -26,7 +26,9 @@ class Repository {
     required String color,
     required List<String> tags,
   }) async {
-    final row = {'title': title, 'color': color, 'tags': tags, 'body': ?body};
+    // A body written here is plain text, so it says so; with no body the stored
+    // one, and its format, are left alone.
+    final row = {'title': title, 'color': color, 'tags': tags, 'body': ?body, if (body != null) 'format': 'plain'};
     if (id == null) {
       await _sb.from('notes').insert(row);
     } else {

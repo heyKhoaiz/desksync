@@ -72,7 +72,7 @@ class _NotesScreenState extends State<NotesScreen> {
   @override
   Widget build(BuildContext context) {
     final notes = _notes;
-    final items = notes == null ? const <Note>[] : filterNotes(notes, _query, noteText);
+    final items = notes == null ? const <Note>[] : filterNotes(notes, _query, notePlain);
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         heroTag: 'new-note',
@@ -133,7 +133,7 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final muted = Theme.of(context).textTheme.bodySmall;
-    final preview = noteText(note.body);
+    final preview = notePlain(note);
     return Card(
       color: noteColor(note.color, Theme.of(context).brightness),
       child: ListTile(
@@ -170,10 +170,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   late final _title = TextEditingController(text: widget.note?.title);
   late final _text = TextEditingController(text: _originalText);
   late final _tags = TextEditingController(text: widget.note?.tags.join(', '));
-  late final String _originalText = noteText(widget.note?.body ?? '');
+  late final String _originalText = widget.note == null ? '' : notePlain(widget.note!);
   late String _color = widget.note?.color ?? 'yellow';
-  late final bool _rich = hasFormatting(widget.note?.body ?? '');
-  late bool _editing = !_rich; // formatted notes open read-only so the formatting is visible
   bool _busy = false;
 
   @override
@@ -200,8 +198,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   void _save() => _guard(() => widget.repo.saveNote(
         id: widget.note?.id,
         title: _title.text.trim(),
-        // Only rewrite the body if the text changed, so changing a title or tag never strips formatting.
-        body: widget.note != null && _text.text == _originalText ? null : plainToNoteHtml(_text.text),
+        // Only rewrite the body if the text changed, so changing a title or a tag
+        // leaves an older note exactly as it was stored.
+        body: widget.note != null && _text.text == _originalText ? null : _text.text,
         color: _color,
         tags: parseTags(_tags.text),
       ));
@@ -227,30 +226,14 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         children: [
           TextField(controller: _title, decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder())),
           const SizedBox(height: 12),
-          if (_editing) ...[
-            if (_rich)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('Changing the text here saves it without its formatting.'),
-              ),
-            TextField(
-              controller: _text,
-              autofocus: note == null,
-              minLines: 8,
-              maxLines: null,
-              keyboardType: TextInputType.multiline,
-              decoration: const InputDecoration(labelText: 'Note', alignLabelWithHint: true, border: OutlineInputBorder()),
-            ),
-          ] else ...[
-            InputDecorator(
-              decoration: const InputDecoration(labelText: 'Note', border: OutlineInputBorder()),
-              child: SelectableText.rich(TextSpan(style: Theme.of(context).textTheme.bodyLarge, children: noteSpans(note!.body))),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(onPressed: () => setState(() => _editing = true), child: const Text('Edit text')),
-            ),
-          ],
+          TextField(
+            controller: _text,
+            autofocus: note == null,
+            minLines: 8,
+            maxLines: null,
+            keyboardType: TextInputType.multiline,
+            decoration: const InputDecoration(labelText: 'Note', alignLabelWithHint: true, border: OutlineInputBorder()),
+          ),
           const SizedBox(height: 12),
           TextField(controller: _tags, decoration: const InputDecoration(labelText: 'Tags, comma separated', border: OutlineInputBorder())),
           const SizedBox(height: 12),

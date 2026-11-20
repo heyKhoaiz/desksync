@@ -2,20 +2,19 @@ import 'package:desksync/data/models.dart';
 import 'package:desksync/data/note_html.dart';
 import 'package:desksync/screens/time_ago.dart';
 import 'package:desksync/share/share.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Note note(String title, {String body = '', List<String> tags = const [], bool pinned = false, int age = 0}) => Note(
+Note note(String title, {String body = '', String format = 'plain', List<String> tags = const [], bool pinned = false, int age = 0}) => Note(
       id: title,
       title: title,
       body: body,
+      format: format,
       color: 'yellow',
       tags: tags,
       pinned: pinned,
       updatedAt: DateTime(2026).subtract(Duration(minutes: age)),
     );
 
-String plain(InlineSpan s) => s.toPlainText();
 
 void main() {
   group('parseShare', () {
@@ -43,63 +42,63 @@ void main() {
     });
   });
 
-  group('note html', () {
-    test('keeps line structure from extension HTML', () {
+  group('plain text notes', () {
+    test('a plain note is shown exactly as stored', () {
+      const body = '**not bold**\n<b>not a tag</b> & co\n- [ ] not a checkbox';
+      expect(notePlain(note('p', body: body)), body);
+    });
+    test('an old HTML note keeps its line structure', () {
       expect(noteText('<div>one</div><div>two</div>'), 'one\ntwo');
       expect(noteText('a<br>b'), 'a\nb');
-      expect(noteText('<ul><li>x</li><li>y</li></ul>'), '• x\n• y');
+      expect(noteText('<ul><li>x</li><li>y</li></ul>'), '- x\n- y');
+      expect(notePlain(note('h', body: '<b>old</b> note', format: 'html')), 'old note');
     });
-    test('never surfaces active content', () {
+    test('an old HTML tick box becomes text', () {
+      expect(noteText('<ul class="tasks"><li class="done"><span class="box on"></span><span>done it</span></li></ul>'), '[x] done it');
+    });
+    test('an old HTML note never surfaces active content', () {
       expect(noteText('safe<script>alert(1)</script><style>p{}</style>'), 'safe');
-      expect(noteSpans('<script>alert(1)</script>'), isEmpty);
     });
-    test('plain text round-trips and is escaped', () {
-      const text = '<b>not bold</b> & co\nsecond line';
-      final html = plainToNoteHtml(text);
-      expect(html, '&lt;b&gt;not bold&lt;/b&gt; &amp; co<br>second line');
-      expect(noteText(html), text);
-      expect(hasFormatting(html), isFalse);
-    });
-    test('detects formatting that plain editing would lose', () {
-      expect(hasFormatting('<b>x</b>'), isTrue);
-      expect(hasFormatting('<ul><li>x</li></ul>'), isTrue);
-      expect(hasFormatting('<span style="background-color: rgb(253, 224, 71);">x</span>'), isTrue);
-      expect(hasFormatting('<div>x</div>a<br>b'), isFalse);
-    });
-    test('styles the extension format', () {
-      final spans = noteSpans('<b>b</b><i>i</i><u>u</u><s>s</s><span style="background-color: rgb(253, 224, 71);">h</span>').cast<TextSpan>();
-      expect(spans[0].style!.fontWeight, FontWeight.bold);
-      expect(spans[1].style!.fontStyle, FontStyle.italic);
-      expect(spans[2].style!.decoration, TextDecoration.underline);
-      expect(spans[3].style!.decoration, TextDecoration.lineThrough);
-      expect(spans[4].style!.backgroundColor, const Color.fromARGB(255, 253, 224, 71));
-    });
-    test('nested bold keeps text in order', () {
-      expect(noteSpans('<b>a<i>b</i></b>c').map(plain).join(), 'abc');
+    test('an old markdown note loses its marks, keeps its words', () {
+      expect(markdownText('## Shopping\n\n- [ ] milk\n- [x] bread'), 'Shopping\n\n[ ] milk\n[x] bread');
+      expect(markdownText('**bold** *it* ~~out~~ ==hi== `code`'), 'bold it out hi code');
+      expect(markdownText('[Docs](https://example.com)'), 'Docs (https://example.com)');
+      expect(notePlain(note('m', body: '> quoted', format: 'markdown')), 'quoted');
     });
   });
 
   group('filterNotes', () {
     final notes = [
       note('old', age: 10, tags: ['Work']),
-      note('new', body: '<b>Needle</b>'),
+      note('new', body: '<b>Needle</b>', format: 'html'),
       note('pinned', age: 99, pinned: true),
     ];
     test('pinned first, then newest', () {
-      expect(filterNotes(notes, '', noteText).map((n) => n.title), ['pinned', 'new', 'old']);
+      expect(filterNotes(notes, '', notePlain).map((n) => n.title), ['pinned', 'new', 'old']);
     });
-    test('searches body text, not HTML', () {
-      expect(filterNotes(notes, 'needle', noteText).map((n) => n.title), ['new']);
-      expect(filterNotes(notes, '<b>', noteText), isEmpty);
+    test('searches an old HTML note by its text, not its tags', () {
+      expect(filterNotes(notes, 'needle', notePlain).map((n) => n.title), ['new']);
+      expect(filterNotes(notes, '<b>', notePlain), isEmpty);
     });
     test('#tag is an exact match', () {
-      expect(filterNotes(notes, '#work', noteText).map((n) => n.title), ['old']);
-      expect(filterNotes(notes, '#wor', noteText), isEmpty);
+      expect(filterNotes(notes, '#work', notePlain).map((n) => n.title), ['old']);
+      expect(filterNotes(notes, '#wor', notePlain), isEmpty);
     });
   });
 
   test('parseTags matches the extension', () {
     expect(parseTags(' #a, b ,,c '), ['a', 'b', 'c']);
+  });
+
+  group('tag rules, the same as extension/lib/tags.js', () {
+    test('lower case, spaces become one hyphen', () => expect(normalizeTag('  Weekly   Shop '), 'weekly-shop'));
+    test('punctuation is removed', () => expect(normalizeTag('Q&A! (draft)'), 'qa-draft'));
+    test('Bangla works, vowel signs and all', () => expect(normalizeTag('কাজের তালিকা'), 'কাজের-তালিকা'));
+    test('32 characters at most', () => expect(normalizeTag('a' * 40).length, 32));
+    test('no repeats, and at most 10', () {
+      expect(parseTags('Work, work, home'), ['work', 'home']);
+      expect(parseTags(List.generate(14, (i) => 't$i').join(',')).length, 10);
+    });
   });
 
   test('timeAgo', () {
