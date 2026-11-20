@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DeskSync popup — demo with sample data</title>
+  <!-- The real popup, with the test doubles from fixtures.js standing in for
+       chrome.*, Supabase and storage. For looking at and clicking through the
+       UI in an ordinary browser tab, and for Playwright. Add ?view=panel or
+       ?view=tab to see the side panel or the full-tab layout. Nothing typed
+       here is kept. -->
+  <link rel="stylesheet" href="../../extension/popup.css">
+</head>
+<body>
+  <script>
+    // crypto.randomUUID exists only on secure pages. The extension's pages
+    // always are; this demo, served over plain http for Playwright, is not.
+    if (!crypto.randomUUID) {
+      crypto.randomUUID = () => '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+        (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16));
+    }
+    (async () => {
+      const html = await (await fetch('../../extension/popup.html?t=' + Date.now())).text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.body.querySelectorAll('script').forEach((s) => s.remove());
+      document.body.insertAdjacentHTML('afterbegin', doc.body.innerHTML);
+      const stamp = Date.now();
+      const load = (src) => new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = src + '?t=' + stamp;
+        s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
+        document.head.append(s);
+      });
+      for (const src of ['fixtures.js', '../../extension/lib/plaintext.js', '../../extension/lib/detect.js', '../../extension/lib/tags.js',
+        '../../extension/lib/tasks.js', '../../extension/lib/format.js', '../../extension/lib/editor.js',
+        '../../extension/popup.js']) await load(src);
+      document.documentElement.dataset.demoReady = '1';
+    })().catch((e) => { document.body.textContent = 'Demo failed to load: ' + e.message; });
+  </script>
+</body>
+</html>

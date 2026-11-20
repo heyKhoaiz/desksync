@@ -11,8 +11,8 @@
   --fg: #141414;
   --fg-2: #70706b;
   --line: #ebebe7;
-  --hover: #f5f5f2;
-  --sel: #f0f0ec;             /* the selected row */
+  --hover: #f5f5f2;           /* a row under the mouse */
+  --sel: #e8e8e2;             /* the selected row: clearly more than hover */
   --ink: #141414;             /* filled buttons, the active chip */
   --on-ink: #e7e7e4;
   --accent: #ffd84d;          /* the one yellow: the selected item's header */
@@ -26,6 +26,18 @@
   --clip: #19bf7a;
   --vault: #ff8a3d;
 
+  /* A colour per note, from the `color` column. Pale enough in light that the
+     header text stays near-black; the dark theme redefines all of them deeper,
+     with light text, rather than dimming these. Each has its own foreground so
+     nothing has to guess at contrast. */
+  --n-yellow: #ffd84d; --n-yellow-fg: #141414;
+  --n-coral:  #ffb3a7; --n-coral-fg:  #141414;
+  --n-peach:  #ffd2a8; --n-peach-fg:  #141414;
+  --n-mint:   #a8e6c3; --n-mint-fg:   #141414;
+  --n-sky:    #a9d4ff; --n-sky-fg:    #141414;
+  --n-lilac:  #d4c2ff; --n-lilac-fg:  #141414;
+  --n-slate:  #d4d6d9; --n-slate-fg:  #141414;
+
   --r: 14px;                  /* a panel */
   --r-row: 10px;              /* a row inside one */
   --fade: 140ms;
@@ -37,14 +49,30 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --ground: #121212; --card: #1d1d1b; --fg: #f2f2ef; --fg-2: #9aa0a6;
-    --line: #2b2b28; --hover: #262623; --sel: #2c2c28; --ink: #f2f2ef; --on-ink: #121212;
+    --line: #2b2b28; --hover: #252522; --sel: #34342f; --ink: #f2f2ef; --on-ink: #121212;
     --danger: #f28b82; --danger-line: #5c2b27;
+    --n-yellow: #6e5a17; --n-yellow-fg: #fff5d1;
+    --n-coral:  #7a3a32; --n-coral-fg:  #ffe9e5;
+    --n-peach:  #7a5430; --n-peach-fg:  #fff0e2;
+    --n-mint:   #2f5f45; --n-mint-fg:   #e3f6ec;
+    --n-sky:    #2d4f70; --n-sky-fg:    #e4f0fc;
+    --n-lilac:  #4a3f73; --n-lilac-fg:  #efe9ff;
+    --n-slate:  #3a3d40; --n-slate-fg:  #eceef0;
   }
 }
 :root[data-theme="dark"] {
   --ground: #121212; --card: #1d1d1b; --fg: #f2f2ef; --fg-2: #9aa0a6;
-  --line: #2b2b28; --hover: #262623; --sel: #2c2c28; --ink: #f2f2ef; --on-ink: #121212;
+  --line: #2b2b28; --hover: #252522; --sel: #34342f; --ink: #f2f2ef; --on-ink: #121212;
   --danger: #f28b82; --danger-line: #5c2b27;
+  /* Yellow is every note's default, so it needs a dark version most of all:
+     the bright one glared out of an otherwise dark popup. */
+  --n-yellow: #6e5a17; --n-yellow-fg: #fff5d1;
+  --n-coral:  #7a3a32; --n-coral-fg:  #ffe9e5;
+  --n-peach:  #7a5430; --n-peach-fg:  #fff0e2;
+  --n-mint:   #2f5f45; --n-mint-fg:   #e3f6ec;
+  --n-sky:    #2d4f70; --n-sky-fg:    #e4f0fc;
+  --n-lilac:  #4a3f73; --n-lilac-fg:  #efe9ff;
+  --n-slate:  #3a3d40; --n-slate-fg:  #eceef0;
 }
 
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -70,28 +98,27 @@ input, textarea, select { font: inherit; color: inherit; }
   stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------- Auth: one panel, nothing else on screen ---------- */
-#auth { flex: 1; display: flex; align-items: center; justify-content: center;
-  background: var(--card); border-radius: var(--r); }
-#auth .box { width: 300px; text-align: center; }
-#auth .mark { width: 42px; height: 42px; border-radius: 50%; background: var(--ink); color: var(--on-ink);
-  display: grid; place-items: center; margin: 0 auto 14px; font-weight: 700; font-size: 17px; }
-#auth h1 { margin: 0 0 4px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
-#auth p { margin: 0 0 18px; font-size: 12.5px; color: var(--fg-2); }
-#auth input { width: 100%; height: 36px; margin-bottom: 8px; padding: 0 13px; border-radius: 999px;
-  border: 1px solid var(--line); background: transparent; outline: none; font-size: 13px; }
-#auth input:focus { border-color: var(--link); }
-#auth .auth-actions { display: flex; gap: 8px; margin-top: 4px; }
-#auth .auth-actions button { flex: 1; height: 36px; border-radius: 999px; font-size: 12.5px; font-weight: 500; }
-#auth .primary { background: var(--ink); color: var(--on-ink); }
-#auth .ghost { border: 1px solid var(--line); color: var(--fg-2); }
-#auth .ghost:hover { background: var(--hover); color: var(--fg); }
+/* Sign-in lives in Settings: an account is optional, so it never stands in front of the app. */
+.sc-row.signin { flex-direction: column; align-items: stretch; gap: 10px; }
+.signin-form { display: flex; flex-direction: column; gap: 7px; max-width: 320px; }
+.signin-form input { height: 34px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--fg); font-size: 12.5px; outline: none; }
+.signin-form input:focus { border-color: var(--link); }
+.signin-actions { display: flex; gap: 8px; }
+.signin-actions button { flex: 1; height: 34px; border-radius: 999px; font-size: 12.5px; font-weight: 500; }
+.signin-actions .primary { background: var(--ink); color: var(--on-ink); }
+.signin-actions .ghost { border: 1px solid var(--line); color: var(--fg-2); }
+.signin-actions .ghost:hover { background: var(--hover); color: var(--fg); }
+.signin-form .msg { margin: 0; font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
 .msg { min-height: 16px; margin: 10px 0 0; font-size: 11.5px; color: var(--danger); }
 
 /* ---------- App shell ---------- */
 #app { flex: 1; min-width: 0; display: flex; gap: 10px; }
 
-/* Rail: the four types, then trash and settings at the foot. */
-.rail { width: 44px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* Rail: the four types, then trash and settings at the foot. The filters carry
+   a word under the icon: a row of six unlabelled glyphs made people hover each
+   one to find Read later. The tools at the foot stay icon-only, with titles. */
+.rail { width: 48px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--on-ink);
   display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-bottom: 6px;
   transition: opacity var(--fade); }
@@ -104,6 +131,11 @@ input, textarea, select { font: inherit; color: inherit; }
 .rail button:hover { background: var(--card); color: var(--fg); }
 .rail button[aria-pressed="true"] { background: var(--card); color: var(--fg); }
 .rail .spacer { flex: 1; }
+.rail [data-f] { width: 46px; height: 40px; border-radius: 11px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; }
+.rail [data-f] .i { width: 16px; height: 16px; }
+.rail .lbl { font-size: 9.5px; font-weight: 600; line-height: 1; letter-spacing: .01em; }
+.rail .sm .i { width: 16px; height: 16px; }
 .rail .badge { position: absolute; top: 0; right: -1px; min-width: 15px; height: 15px; padding: 0 3px;
   border-radius: 99px; background: var(--ink); color: var(--on-ink);
   font-size: 9px; font-weight: 700; line-height: 15px; }
@@ -141,11 +173,36 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .listcard { flex: 1; min-height: 0; background: var(--card); border-radius: var(--r);
   display: flex; flex-direction: column; overflow: hidden; }
+/* Quick capture, at the top of the list. Adding a note used to mean opening an
+   empty editor first, which is a step and a blank page; a line typed here is the
+   note. Shown only under Everything and Notes, the filters that can hold one. */
+.compose { flex: none; display: flex; align-items: center; gap: 9px; height: 37px;
+  padding: 0 13px; border-bottom: 1px solid var(--line); }
+.compose .i { flex: none; width: 15px; height: 15px; color: var(--fg-2);
+  transition: color var(--fade); }
+.compose input { flex: 1; min-width: 0; height: 100%; border: 0; background: none;
+  outline: none; font: inherit; color: inherit; }
+.compose input::placeholder { color: var(--fg-2); }
+/* The hint only answers a question you are asking: it appears once you are typing. */
+.compose kbd { flex: none; font: 600 10px/1 inherit; color: var(--fg-2);
+  border: 1px solid var(--line); border-radius: 5px; padding: 3px 5px;
+  opacity: 0; transition: opacity var(--fade); }
+.compose:focus-within .i { color: var(--fg); }
+.compose:focus-within kbd { opacity: 1; }
+
 .listhead { flex: none; display: flex; align-items: baseline; gap: 7px; padding: 9px 13px 6px; }
 .listhead .where { font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
 .listhead .n { font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .listhead .dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
 .listhead .clear { margin-left: auto; font-size: 11.5px; color: var(--fg-2); }
+.listhead .copy-list { margin-left: auto; align-self: center; display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; color: var(--fg-2); }
+.listhead .copy-list .i { width: 13px; height: 13px; }
+.listhead .copy-list:hover { background: var(--hover); color: var(--fg); }
+.listhead .copy-list + .clear { margin-left: 2px; }
+/* Same height and shape as Copy, so the two read as a pair. */
+.listhead .clear { align-self: center; height: 22px; padding: 0 7px; border-radius: 6px; }
+.listhead .clear:hover { background: var(--hover); }
 .listhead .clear:hover { color: var(--fg); }
 
 .list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 4px 4px; list-style: none; }
@@ -153,16 +210,29 @@ input, textarea, select { font: inherit; color: inherit; }
 .row { display: flex; align-items: flex-start; gap: 9px; padding: 7px 10px;
   border-radius: var(--r-row); cursor: pointer; }
 .row:hover { background: var(--hover); }
-.row[aria-selected="true"] { background: var(--sel); }
+.row[aria-selected="true"], .row.act[aria-selected="true"] { background: var(--sel); }
 .row .bul { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; }
+/* A note's colour as an edge down the row: a stack of notes reads by colour the
+   way a pile of paper does, which a dot the size of a full stop could not do. */
+.row.k-note .bul { width: 4px; height: auto; align-self: stretch; margin: 1px 2px 1px 2px; border-radius: 2px; }
+/* A link's site icon from Chrome's favicon cache, where the dot would be. */
+.row .fav { width: 16px; height: 16px; flex: none; margin-top: 1px; border-radius: 3px; }
 .row .body { flex: 1; min-width: 0; }
 .row .t { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .m { display: block; margin-top: 1px; font-size: 11.5px; color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; font-weight: 400; }
-.row .tg { font-size: 11px; background: var(--hover); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
+.row .tg { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--fg-2);
+  background: var(--hover); border-radius: 4px; padding: 0 5px; margin-right: 4px; vertical-align: 1px; }
+.row .tg .tg-dot { width: 6px; height: 6px; }
 .row[aria-selected="true"] .tg { background: var(--line); }
 .row .mark-i { color: var(--fg-2); opacity: .8; }
+/* The same filled pin, wherever a pinned thing is shown. */
+.row .mark-i.pinned { color: var(--fg); opacity: 1; }
+.row .mark-i.pinned .i { width: 14px; height: 14px; }
+.row .mark-i.pinned .i, .row-acts [data-row-act="pin"][aria-pressed="true"] .i,
+#ed-pin[aria-pressed="true"] .i { fill: currentColor; }
+.row-acts [data-row-act="pin"][aria-pressed="true"] { color: var(--fg); }
 
 /* Shown on hover and on the selected row only. Kept out of the flow so the row
    does not reflow when they appear, and faded over the row's own background so
@@ -204,6 +274,8 @@ input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .kbd { flex: none; font-size: 10.5px; color: var(--fg-2); }
 .empty { padding: 40px 18px; text-align: center; color: var(--fg-2); list-style: none; }
+/* Under the action rows of a filter that is still empty: what goes here. */
+.empty.hint { padding: 16px 18px; font-size: 12px; line-height: 1.55; }
 
 .count { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--fg-2); }
@@ -217,6 +289,8 @@ input, textarea, select { font: inherit; color: inherit; }
 /* ---------- Detail pane ---------- */
 .detail { flex: 1; min-width: 0; background: var(--card); border-radius: var(--r);
   display: flex; flex-direction: column; overflow: hidden; }
+/* The colour and its text come from the note (see NOTE_COLOURS in popup.js);
+   these are the fallback for everything that is not a note. */
 .d-band { flex: none; padding: 14px 16px 12px; background: var(--accent); color: #141414; }
 .d-band.plain { background: transparent; color: inherit; border-bottom: 1px solid var(--line); }
 .d-kind { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; }
@@ -226,9 +300,17 @@ input, textarea, select { font: inherit; color: inherit; }
   font-weight: 400; line-height: 1.5; word-break: break-all; }
 .d-sub { margin: 5px 0 0; font-size: 12px; opacity: .72; }
 .d-band input.t-in { display: block; width: 100%; margin: 7px 0 0; padding: 0; border: 0;
-  background: none; outline: none; color: #141414;
+  background: none; outline: none; color: inherit;
   font: 650 17px/1.25 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.01em; }
-.d-band input.t-in::placeholder { color: rgba(20, 20, 20, .42); }
+/* Mixed from the header's own text colour, so it fades the right way on a pale
+   yellow and on a deep slate alike. */
+.d-band input.t-in::placeholder { color: color-mix(in srgb, currentColor 62%, transparent); }
+/* While editing, every row above the note is a row you cannot write in. */
+/* One row: Back, the title, the width switch. */
+.d-band.ed-head { padding: 9px 12px; }
+.d-band.ed-head input.t-in { flex: 1; min-width: 0; margin: 0; padding: 4px 6px; border-radius: 7px;
+  font-size: 16px; }
+.d-band.ed-head input.t-in:focus { background: color-mix(in srgb, currentColor 8%, transparent); }
 
 .d-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
 .d-body .field { display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -238,7 +320,65 @@ input, textarea, select { font: inherit; color: inherit; }
 .d-body .v { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-body .wrap { white-space: pre-wrap; word-break: break-word; }
-.d-foot { flex: none; display: flex; align-items: center; gap: 6px; padding: 10px 16px 14px; }
+/* Code and commands keep their spacing and get a box, so a command is easy to
+   check before it is pasted into a terminal. */
+.d-body .code { display: block; margin: 0; padding: 10px 12px; border-radius: 9px; background: var(--hover);
+  font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  overflow: visible; text-overflow: clip; }
+.d-body .code + .muted { margin-top: 10px; line-height: 1.5; }
+/* Your note on a saved link. */
+.link-note { display: block; width: 100%; margin-top: 12px; padding: 9px 11px; resize: vertical; min-height: 64px;
+  border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--fg);
+  font: inherit; font-size: 12.5px; line-height: 1.55; outline: none; }
+.link-note:focus { border-color: var(--link); }
+.link-note::placeholder { color: var(--fg-2); }
+.d-foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 10px 12px 14px 14px;
+  container-type: inline-size; }
+/* Every label on one line. Beside the list the pane is narrow, and a clip has
+   five buttons: "As note" broke over two lines and Delete was pushed out of
+   sight. Below 400px the ghost buttons tighten up rather than wrap. */
+.d-foot button { white-space: nowrap; flex-shrink: 0; }
+@container (max-width: 400px) {
+  .d-foot { gap: 2px; }
+  .d-foot .ghost { padding: 0 8px; gap: 4px; }
+  .d-foot .primary { padding: 0 12px; }
+}
+
+/* ---------- Action panes: a preview of what will be added ---------- */
+/* Neutral, not a type's colour: yellow means a note, and this is not one yet. */
+.d-band.act-band { background: var(--hover); color: var(--fg); border-bottom: 1px solid var(--line); }
+.d-band.act-band .d-kind { color: var(--fg-2); }
+.d-band.act-band .d-kind .i { width: 13px; height: 13px; }
+.preview { border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin: 0 0 10px; }
+.link-preview { display: flex; align-items: center; gap: 11px; }
+.link-preview .fav, .link-preview > .i { width: 18px; height: 18px; flex: none; border-radius: 4px; color: var(--fg-2); }
+.link-preview .body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.link-preview .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-preview .u { font-size: 11.5px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-preview { max-height: 220px; overflow-y: auto; font-size: 12.5px; }
+.clip-preview.empty { color: var(--fg-2); }
+.d-foot .primary .kbd-in { margin-left: 8px; font-size: 11px; opacity: .65; font-weight: 400; }
+
+/* ---------- Welcome, on a fresh install ---------- */
+.w-steps { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; }
+.w-step { display: flex; align-items: center; gap: 11px; padding: 9px 11px; border-radius: 11px;
+  border: 1px solid var(--line); text-align: left; transition: background var(--fade); }
+.w-step:hover:not(:disabled) { background: var(--hover); }
+.w-step:disabled { opacity: .5; cursor: default; }
+.w-n { width: 22px; height: 22px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--hover); font-size: 11px; font-weight: 650; color: var(--fg-2); }
+.w-n .i { width: 13px; height: 13px; stroke-width: 2.2; }
+.w-step.done .w-n { background: var(--clip); color: #fff; }
+.w-step.done b { color: var(--fg-2); text-decoration: line-through; text-decoration-color: var(--line); }
+.w-txt { min-width: 0; display: flex; flex-direction: column; }
+.w-txt b { font-weight: 550; font-size: 12.5px; }
+.w-txt span { font-size: 11.5px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.welcome p { margin: 0 0 14px; line-height: 1.55; }
+.w-keys { display: flex; flex-direction: column; gap: 7px; margin: 0 0 16px; }
+.w-key { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.w-key kbd { min-width: 92px; font: 500 11px ui-monospace, Menlo, Consolas, monospace; color: var(--fg-2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; text-align: center; }
+.link-btn { padding: 0; color: var(--link); font: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .d-foot button { height: 32px; padding: 0 14px; border-radius: 999px; font-size: 12.5px;
   font-weight: 500; display: flex; align-items: center; gap: 6px; }
 .d-foot .primary { background: var(--ink); color: var(--on-ink); }
@@ -259,92 +399,225 @@ input, textarea, select { font: inherit; color: inherit; }
 .tag-pop .hash { color: var(--fg-2); }
 .tag-pop .new { margin-left: auto; font-size: 10px; color: var(--fg-2);
   border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
-.d-tags .t { height: 23px; padding: 0 4px 0 9px; border-radius: 999px; background: var(--hover);
+/* Why a typed name cannot be added, or that it will be shortened. */
+.tag-pop .tag-hint { padding: 6px 8px 4px; font-size: 11px; color: var(--fg-2); line-height: 1.4; }
+.tag-pop button + .tag-hint { border-top: 1px solid var(--line); margin-top: 3px; }
+.d-tags .t { height: 23px; padding: 0 3px 0 9px; border-radius: 999px; background: var(--hover);
   font-size: 11.5px; display: flex; align-items: center; gap: 3px; }
-.d-tags .t .x { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center;
-  color: var(--fg-2); font-size: 13px; line-height: 1; }
-.d-tags .t .x:hover { background: var(--line); color: var(--fg); }
+/* Removing a tag: the × says so in red when you point at it, the same red as
+   Delete everywhere else. A grey circle on a tinted chip could not be seen,
+   and read as any other button. 18px, because 16 was hard to land on. */
+.d-tags .t .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--fg-2); font-size: 14px; line-height: 1;
+  transition: background var(--fade), color var(--fade); }
+.d-tags .t .x:hover, .d-tags .t .x:focus-visible {
+  background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.d-tags .t .x:active { background: color-mix(in srgb, var(--danger) 26%, transparent); }
 .d-tags .add { height: 23px; padding: 0 10px; border-radius: 999px; font-size: 11.5px;
   color: var(--fg-2); border: 1px dashed var(--line); }
-.d-tags .add:hover { color: var(--fg); border-color: var(--fg-2); }
+.d-tags .add:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-2); }
+.d-tags .add:disabled { cursor: default; border-style: solid; opacity: .7; }
 .d-tags input { height: 23px; width: 116px; padding: 0 10px; border-radius: 999px;
   border: 1px solid var(--link); background: transparent; outline: none; font-size: 11.5px; }
 .tg-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
-/* ---------- Rendered markdown ---------- */
-.md { font-size: 13px; line-height: 1.65; }
-.md > :first-child { margin-top: 0; }
-.md > :last-child { margin-bottom: 0; }
-.md p { margin: 0 0 9px; }
-.md h1 { font-size: 15px; font-weight: 650; margin: 16px 0 6px; letter-spacing: -.01em; }
-.md h2 { font-size: 13.5px; font-weight: 650; margin: 14px 0 5px; }
-.md h3 { font-size: 12.5px; font-weight: 650; margin: 12px 0 4px; color: var(--fg-2); }
-.md ul, .md ol { margin: 0 0 9px; padding-left: 19px; }
-.md li { margin-bottom: 3px; }
-.md ul.tasks { list-style: none; padding-left: 2px; }
-.md ul.tasks li { display: flex; gap: 7px; align-items: flex-start; }
-.md ul.tasks .box { width: 13px; height: 13px; flex: none; margin-top: 2.5px;
-  border: 1.5px solid var(--fg-2); border-radius: 4px; }
-.md ul.tasks .box.on { background: var(--clip); border-color: var(--clip); position: relative; }
-.md ul.tasks .box.on::after { content: ""; position: absolute; left: 3.5px; top: .5px;
-  width: 3.5px; height: 7px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: rotate(42deg); }
-.md ul.tasks li.done { color: var(--fg-2); text-decoration: line-through; }
-.md code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px;
-  background: var(--hover); border-radius: 4px; padding: 1px 4px; }
-.md pre { margin: 0 0 10px; padding: 9px 11px; background: var(--hover); border-radius: 9px; overflow-x: auto; }
-.md pre code { background: none; padding: 0; line-height: 1.55; }
-.md blockquote { margin: 0 0 9px; padding: 1px 0 1px 11px; border-left: 2.5px solid var(--accent); color: var(--fg-2); }
-.md hr { border: 0; border-top: 1px solid var(--line); margin: 13px 0; }
-.md a { color: var(--link); text-decoration: none; }
-.md a:hover { text-decoration: underline; }
-.md strong { font-weight: 650; }
-.md del, .md s { color: var(--fg-2); }
-.md mark { background: var(--accent); color: #141414; border-radius: 3px; padding: 0 2px; }
+/* ---------- A note, as read ---------- */
+/* Plain text: the line breaks the note was typed with are the only layout it
+   has, so they are kept rather than collapsed. */
+.plain { font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- Note editor ---------- */
-.ed { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ed-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 10px;
-  border-bottom: 1px solid var(--line); }
-/* The tools give way, the mode switch does not. */
-.ed-bar .tools { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 1px;
-  overflow-x: auto; scrollbar-width: none; }
-.ed-bar .tools::-webkit-scrollbar { display: none; }
-.ed-bar .tools button { flex: none; }
-.ed-bar button { height: 26px; min-width: 26px; padding: 0 6px; border-radius: 7px;
-  display: grid; place-items: center; color: var(--fg-2); font-size: 12px; }
-.ed-bar button:hover { background: var(--hover); color: var(--fg); }
-/* On means "this applies to what you are about to type", so it reads as a
-   pressed key rather than as a hover. */
-.ed-bar .tools button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
-.ed-bar .tools button[aria-pressed="true"]:hover { background: var(--ink); color: var(--on-ink); }
-.ed-bar .sep { width: 1px; height: 15px; background: var(--line); margin: 0 5px; }
-.ed-bar .b { font-weight: 800; }
-.ed-bar .i-t { font-style: italic; font-family: Georgia, serif; }
-.ed-bar .s { text-decoration: line-through; }
-.ed-bar .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
-.ed-bar .right { flex: none; margin-left: auto; display: flex; gap: 2px; align-items: center; }
-.ed-bar .saved { font-size: 11px; color: var(--fg-2); white-space: nowrap; }
-.ed-bar #ed-wide { width: 26px; height: 26px; border-radius: 7px; display: grid;
-  place-items: center; color: var(--fg-2); }
-.ed-bar #ed-wide .i { width: 15px; height: 15px; }
-.ed-bar #ed-wide:hover { background: var(--hover); color: var(--fg); }
-.ed-bar #ed-wide[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
-/* The editing surface IS the rendered note, so it carries .md as well and needs
-   nothing of its own beyond room to scroll and a placeholder. */
-.ed-rich { flex: 1; min-height: 0; overflow-y: auto; padding: 13px 16px; outline: none; }
-.ed-rich:focus { outline: none; }
-.ed-rich:empty::before, .ed-rich > p:only-child:empty::before {
-  content: attr(data-placeholder); color: var(--fg-2); pointer-events: none; }
-.ed-rich .box { cursor: pointer; }
-.ed-bar .link-in { flex: none; width: 150px; height: 26px; padding: 0 8px; margin-left: 4px;
-  border: 1px solid var(--link); border-radius: 7px; background: transparent;
-  color: var(--fg); font-size: 11.5px; outline: none; }
-.ed-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 16px 13px; }
+.ed { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The editor header's top row: Back, what this is, and the width switch. Drawn
+   in the note's own colours, so the buttons take currentColor. */
+.ed-top { display: flex; align-items: center; gap: 8px; }
+.ed-back { display: inline-flex; align-items: center; gap: 3px; height: 28px; padding: 0 10px 0 5px;
+  border-radius: 999px; color: inherit; font-size: 12.5px; font-weight: 600;
+  background: color-mix(in srgb, currentColor 10%, transparent); }
+.ed-back .i { width: 16px; height: 16px; }
+/* Beside the list, Back is a button for something already on screen: the list
+   is one click away, and Esc still closes the note. It is only needed when the
+   note has the whole popup and the list is out of sight. */
+#app:not(.wide) .ed-back { display: none; }
+.ed-back:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
+#ed-wide { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+  color: inherit; opacity: .7; }
+#ed-wide .i { width: 15px; height: 15px; }
+#ed-wide:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+/* ---- the editor: what you see is what you get ----
+   Each line of the note is one .ln. A list line's marker is not in the text
+   you edit: it is drawn here, in the line's left margin, as a checkbox, a
+   bullet or a number. The ** and _ around bold and italic are in the page
+   but hidden (.mk), so the page reads back as exactly the note's text.
+   In a wide note the text keeps a readable measure, about 680px, centred. */
+.ed-rich {
+  flex: 1; min-height: 0; width: 100%; overflow-y: auto; outline: none; position: relative;
+  padding: 13px max(16px, calc((100% - 680px) / 2)) 24px;
+  font: 14px/1.65 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  color: var(--fg); caret-color: var(--fg);
+  white-space: pre-wrap; overflow-wrap: break-word; tab-size: 4;
+  scrollbar-gutter: stable;
+}
+.ed-rich.empty::before { content: attr(data-placeholder); position: absolute; pointer-events: none;
+  top: 13px; left: max(16px, calc((100% - 680px) / 2)); color: var(--fg-2); }
+.ed-rich .ln { position: relative; min-height: 1.65em; }
+.ed-rich .mk { display: none; }
+.ed-rich .b { font-weight: 650; }
+.ed-rich .em { font-style: italic; }
+
+/* List lines: room on the left for the marker, more for each level in. */
+.ed-rich .ln[data-k] { padding-left: calc(var(--ind, 0) * .55em + 24px); }
+.ed-rich .ln[data-k]::before { position: absolute; top: 0; left: calc(var(--ind, 0) * .55em);
+  height: 1.65em; display: flex; align-items: center; color: var(--fg-2); }
+.ed-rich .ln[data-k="bullet"]::before { content: "•"; width: 18px; justify-content: center; font-size: 1.15em; }
+.ed-rich .ln[data-k="number"]::before { content: attr(data-n); width: 19px; justify-content: flex-end;
+  font-variant-numeric: tabular-nums; }
+/* A task's checkbox. Its cursor is a hand: it is a thing to press. */
+.ed-rich .ln[data-k="task"]::before {
+  content: ""; width: 15px; height: 15px; top: calc((1.65em - 15px) / 2); left: calc(var(--ind, 0) * .55em + 1px);
+  box-sizing: border-box; border-radius: 4px; cursor: pointer;
+  border: 1.5px solid color-mix(in srgb, var(--fg) 42%, transparent); background: var(--card);
+  transition: background var(--fade), border-color var(--fade);
+}
+.ed-rich .ln[data-k="task"]:hover::before { border-color: color-mix(in srgb, var(--fg) 65%, transparent); }
+.ed-rich .ln[data-done]::before {
+  border-color: var(--clip);
+  background: var(--clip) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5' fill='none' stroke='white' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px no-repeat;
+}
+/* Done: the words step back, struck through lightly enough to stay readable. */
+.ed-rich .ln[data-done] { color: var(--fg-2); text-decoration: line-through;
+  text-decoration-thickness: 1px; text-decoration-color: color-mix(in srgb, var(--fg-2) 55%, transparent); }
+
+/* Find: marked with the Highlight API, so the page itself is never touched. */
+::highlight(ds-find) { background-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+::highlight(ds-find-cur) { background-color: var(--accent); color: #141414; }
+
+/* The formatting buttons: always on screen, at the left of the bottom bar.
+   A lit button means it applies where the caret is (or is switched on for
+   what you type next). */
+.ed-tools { flex: none; display: flex; align-items: center; gap: 1px; padding: 2px; margin-right: 4px;
+  border: 1px solid var(--line); border-radius: 9px; }
+.ed-tools button { width: 28px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+  color: var(--fg-2); font: 650 14px/1 ui-serif, Georgia, serif;
+  transition: background var(--fade), color var(--fade); }
+.ed-tools button .i { width: 15px; height: 15px; }
+.ed-tools button .num { font: 650 11.5px/1 ui-sans-serif, system-ui, sans-serif; }
+.ed-tools button:hover { background: var(--hover); color: var(--fg); }
+.ed-tools button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.ed-tools .sep { width: 1px; height: 14px; margin: 0 3px; background: var(--line); }
+
+/* Find in the note: a strip above the text, only while it is open. */
+.ed-find { flex: none; display: flex; align-items: center; gap: 4px;
+  margin: 8px max(12px, calc((100% - 688px) / 2)) 0; padding: 0 4px 0 10px; height: 32px;
+  border: 1px solid var(--line); border-radius: 999px; }
+.ed-find > .i { width: 14px; height: 14px; color: var(--fg-2); }
+.ed-find input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none;
+  font-size: 12.5px; }
+.ed-find .n { font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ed-find button { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--fg-2); }
+.ed-find button .i { width: 14px; height: 14px; }
+.ed-find button:hover { background: var(--hover); color: var(--fg); }
+.ed-find .close { font-size: 16px; line-height: 1; }
+.ed-find button[aria-label="Previous match"] .i { transform: rotate(90deg); }
+.ed-find button[aria-label="Next match"] .i { transform: rotate(90deg); }
+
+/* An email note's way out of DeskSync. */
+.ed-foot .mail-btn { height: 30px; padding: 0 13px 0 11px; border-radius: 999px; font-size: 12px;
+  font-weight: 500; display: inline-flex; align-items: center; gap: 6px; margin-right: 4px;
+  background: var(--ink); color: var(--on-ink); }
+.ed-foot .mail-btn .i { width: 14px; height: 14px; }
+
+/* An empty note asks what it will be. */
+.ed-start { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  padding: 10px max(16px, calc((100% - 680px) / 2)) 0; }
+.ed-start .lab { font-size: 11.5px; color: var(--fg-2); margin-right: 2px; }
+.ed-start button { height: 28px; padding: 0 11px 0 9px; border-radius: 999px; border: 1px solid var(--line);
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg);
+  transition: background var(--fade), border-color var(--fade); }
+.ed-start button .i { width: 14px; height: 14px; color: var(--fg-2); }
+.ed-start button:hover { background: var(--hover); border-color: var(--fg-2); }
+.ed-start .tip { font-size: 11px; color: var(--fg-2); margin-left: 4px; }
+/* Your own templates, after the built-in starts: dashed, because they are
+   copies of a note rather than a kind of note. */
+.ed-start .tpl { border-style: dashed; max-width: 160px; }
+.ed-start .tpl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ed-foot { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 12px 11px 16px;
+  border-top: 1px solid var(--line); container-type: inline-size; }
+/* A narrow pane (beside the list, or the side panel) keeps every button and
+   gives up the words first: the counts, then the progress bar. */
+@container (max-width: 440px) { .ed-foot .meta { display: none; } }
+@container (max-width: 370px) { .ed-foot .prog { display: none; } .ed-foot { gap: 4px; } }
 .ed-foot .primary { height: 32px; padding: 0 16px; border-radius: 999px; font-size: 12.5px;
   font-weight: 500; background: var(--ink); color: var(--on-ink); }
 .ed-foot .saved { font-size: 11.5px; color: var(--fg-2); }
+.ed-foot .retry { height: 24px; padding: 0 9px; border-radius: 999px; font-size: 11.5px;
+  border: 1px solid var(--danger-line); color: var(--danger); }
+/* Progress of a task list: a thin bar, in the footer and on the list row.
+   Green once it is all done. */
+.prog { display: inline-block; flex: none; width: 34px; height: 4px; border-radius: 2px;
+  background: var(--line); overflow: hidden; vertical-align: middle; }
+.prog i { display: block; height: 100%; border-radius: 2px; background: var(--link);
+  transition: width var(--fade); }
+.prog.all i { background: var(--clip); }
+.row .prog { width: 26px; margin-right: 6px; position: relative; top: -1px; }
+.ed-foot .meta { min-width: 0; font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-foot .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px;
+  color: var(--fg-2); }
+.ed-foot .icon-btn .i { width: 16px; height: 16px; }
+.ed-foot .icon-btn:hover { background: var(--hover); color: var(--fg); }
+/* Pinned is said by the shape: a filled pin, in full ink. Unpinned is the
+   outline in grey. A grey box behind the button meant the same as hovering
+   it, so a pinned note looked like any other. */
+.ed-foot .icon-btn[aria-pressed="true"] { color: var(--fg); }
+.ed-foot .icon-btn[aria-pressed="true"]:hover { background: var(--hover); }
 .ed-foot .spacer { flex: 1; }
 .ed-foot .hint { font-size: 11px; color: var(--fg-2); }
+
+/* ---- everything else the note can do ---- */
+.ed-foot .more { position: relative; display: flex; align-items: center; }
+.ed-foot .menu-btn { display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 8px; color: var(--fg-2); }
+.ed-foot .menu-btn:hover { background: var(--hover); color: var(--fg); }
+.ed-foot .menu-btn .i { width: 16px; height: 16px; }
+.menu { position: absolute; bottom: 34px; right: 0; min-width: 196px; display: none;
+  flex-direction: column; padding: 5px; background: var(--card);
+  border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16); z-index: 5; }
+.menu.open { display: flex; }
+.menu button { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 9px; border-radius: 7px; font-size: 12.5px; text-align: left; white-space: nowrap; }
+.menu button:hover { background: var(--hover); }
+.menu button.danger { color: var(--danger); }
+.menu .tick { color: var(--fg-2); }
+
+/* ---- the note's colour ---- */
+.ed-foot .colour { position: relative; display: flex; align-items: center; }
+.ed-foot .swatch-btn { display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 8px; }
+.ed-foot .swatch-btn:hover { background: var(--hover); }
+.swatch { width: 15px; height: 15px; border-radius: 50%; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18); }
+/* The palette: a popover above the dot, lined up with its right-hand edge so
+   it opens back into the pane, never past it. Same card, border, shadow and
+   radius as the ⋮ menu beside it. */
+.swatches { position: absolute; bottom: calc(100% + 8px); right: -4px; left: auto; display: none;
+  flex-direction: column; gap: 7px; padding: 9px 10px 10px; width: max-content;
+  background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16); z-index: 5; }
+.swatches.open { display: flex; }
+.pop-title { font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.swatch-row { display: flex; gap: 6px; }
+.swatches .swatch { width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer;
+  transition: box-shadow var(--fade); }
+/* The tick shows only on the chosen colour; hover and focus get a ring. */
+.swatches .swatch .i { width: 13px; height: 13px; stroke-width: 2.4; opacity: 0; }
+.swatches .swatch.on .i { opacity: 1; }
+.swatches .swatch:hover { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18), 0 0 0 2px var(--card), 0 0 0 3.5px var(--line); }
+.swatches .swatch.on { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18), 0 0 0 2px var(--card), 0 0 0 3.5px var(--fg-2); }
+.swatches .swatch:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 /* ---------- Vault editor ---------- */
 .v-form { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px;
@@ -387,6 +660,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .sc-head .ghost:disabled { opacity: .45; cursor: default; }
 .sc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 14px; }
 .sc-sec { padding: 14px 16px 2px; font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.sc-rules { margin: 4px 16px 6px; font-size: 11.5px; line-height: 1.5; color: var(--fg-2); }
 .sc-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .sc-row .lab { flex: 1; min-width: 0; }
 .sc-row .lab b { display: block; font-weight: 500; }
@@ -444,3 +718,34 @@ input, textarea, select { font: inherit; color: inherit; }
 @media (max-width: 740px) { .mid { width: 280px; } }
 @media (max-width: 660px) { .mid { width: 250px; } .row.act .where { display: none; } }
 @media (max-width: 580px) { .mid { width: 220px; } body { gap: 8px; padding: 8px; } .row .kbd { display: none; } }
+
+/* ---------- Side panel and full tab ----------
+   Both have a real viewport, so they fill it (the popup's vw/vh caveat above
+   does not apply: the window exists before the page is laid out). */
+html.view-panel body, html.view-tab body { width: auto; height: 100vh; }
+html.view-tab body { max-width: 1200px; margin: 0 auto; }
+html.view-tab .mid { width: 360px; }
+.view-panel .ed-foot .hint, .view-panel .count span { display: none; }
+
+/* A side panel is tall and narrow, so the list and the pane stack: the list on
+   top, what you picked underneath, both on screen at once. */
+@media (max-width: 699px) {
+  html.view-panel #app, html.view-tab #app {
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(230px, 46%) minmax(0, 1fr);
+  }
+  html.view-panel .rail, html.view-tab .rail { grid-row: 1 / 3; }
+  html.view-panel .mid, html.view-tab .mid { width: auto !important; grid-column: 2; grid-row: 1; }
+  html.view-panel .detail, html.view-tab .detail { grid-column: 2; grid-row: 2; }
+  html.view-panel .screen, html.view-tab .screen { grid-column: 2; grid-row: 1 / 3; }
+  html.view-panel #app.wide .detail, html.view-tab #app.wide .detail { grid-row: 1 / 3; }
+}
+
+/* A short popup (Chrome zoomed in gives it fewer pixels than 560) keeps the
+   rail's icons and drops the words under them, which otherwise crowd into
+   each other. */
+@media (max-height: 470px) {
+  html.view-popup .rail .lbl { display: none; }
+  html.view-popup .rail [data-f] { height: 32px; }
+  html.view-popup .rail { gap: 2px; }
+}

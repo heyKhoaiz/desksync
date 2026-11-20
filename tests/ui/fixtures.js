@@ -16,25 +16,25 @@ const DESKSYNC_CONFIG = {
   CLIP_MAX_LENGTH: 20000
 };
 const VAULT_VERIFIER = 'desksync-vault-v1';
-const OUTBOX_KEY = 'outbox';
 
 const iso = (minsAgo) => new Date(Date.now() - minsAgo * 60000).toISOString();
 
 const DATA = {
   notes: [
-    { id: 'n1', title: 'Launch checklist', format: 'markdown', pinned: true, tags: ['launch', 'chrome'],
+    { id: 'n1', title: 'Launch checklist', format: 'plain', pinned: true, tags: ['launch', 'chrome'],
       updated_at: iso(12), created_at: iso(400),
-      body: '## Before the store listing\n\n- [x] Privacy policy — clipboard text is stored in the account, the vault is **end-to-end encrypted**\n- [x] Screenshots at `1280x800`\n- [ ] Justify the optional host permission\n- [ ] Pricing copy\n\n## Open question\n\n> Do we ship the Android app in the same week?\n\nSee [the architecture notes](https://example.com/docs).' },
+      body: 'Before the store listing\n\n[x] Privacy policy — clipboard text is stored in the account, the vault is end-to-end encrypted\n[x] Screenshots at 1280x800\n[ ] Justify the optional host permission\n[ ] Pricing copy\n\nOpen question: do we ship the Android app in the same week, or ship it after?\n\nSee https://example.com/docs' },
+    // A note from the markdown editor: converted to text the first time it is opened.
     { id: 'n2', title: 'Supabase RLS gotcha', format: 'markdown', pinned: false, tags: ['supabase'],
       updated_at: iso(60), created_at: iso(600),
       body: 'Wrap `auth.uid()` in a subselect so the planner caches it.\n\n```\nusing ( user_id = (select auth.uid()) )\n```\n\nOn a 40k-row table this took a scan from **1.2s to 30ms**.' },
-    // A note from before the markdown editor: stored as sanitized HTML.
+    // A note from the rich-text editor before that: stored as sanitized HTML.
     { id: 'n3', title: 'Old rich-text note', format: 'html', pinned: false, tags: ['work'],
       updated_at: iso(300), created_at: iso(3000),
       body: '<div>This one was written in the <b>old</b> editor.</div><ul><li>first</li><li>second</li></ul><div><u>underlined</u> and <span style="background-color:#fde047">highlighted</span>.</div>' },
-    { id: 'n4', title: 'Grocery', format: 'markdown', pinned: false, tags: ['home'],
+    { id: 'n4', title: 'Grocery', format: 'plain', pinned: false, tags: ['home'],
       updated_at: iso(320), created_at: iso(900),
-      body: '- [x] oat milk\n- [ ] coffee beans\n- [ ] tahini' }
+      body: 'oat milk\ncoffee beans\ntahini' }
   ],
   read_later: [
     { id: 'l1', url: 'https://developer.chrome.com/docs/extensions/mv3/intro/', title: 'Migrate to Manifest V3', favicon: null,
@@ -60,13 +60,18 @@ const DATA = {
 };
 
 const DELETED = {
-  notes: [{ id: 'd1', title: 'Old standup notes', body: '', format: 'markdown', tags: [], deleted_at: iso(2880) }],
+  notes: [{ id: 'd1', title: 'Old standup notes', body: '', format: 'plain', tags: [], deleted_at: iso(2880) }],
   read_later: [{ id: 'd2', url: 'https://example.com/x', title: 'A tutorial I finished', tags: [], deleted_at: iso(5760) }],
   vault_items: [{ id: 'd3', iv: '', ciphertext: '', deleted_at: iso(15840) }]
 };
 
 // chrome.*
 const store = { settings: { clipCapture: false }, captureOrigins: [], tagColors: { supabase: '#19bf7a', launch: '#ffd84d' } };
+// popup.js also calls store.claim/clear/migrate (lib/store.js). Those are
+// non-enumerable here so the chrome.storage mock never sees them as keys.
+for (const k of ['adopt', 'clear', 'migrate', 'vaultMeta', 'setVaultMeta', 'vaultConflict', 'exportAll', 'importAll']) {
+  Object.defineProperty(store, k, { value: (...a) => localStore[k](...a), enumerable: false });
+}
 window.chrome = {
   storage: {
     local: {
@@ -92,7 +97,8 @@ window.chrome = {
 const sb = {
   auth: {
     async getSession() { return { data: { session: { user: { id: 'u1', email: 'khoaiz@example.com' } } } }; },
-    async signOut() {}
+    async signOut() { window.__signedOutCalled = true; },
+    async signInWithPassword() { return { data: { session: {} }, error: { message: 'Invalid login credentials' } }; }
   },
   channel() { return { on() { return this; }, subscribe() {} }; },
   from(table) {
@@ -105,10 +111,51 @@ const sb = {
     return api;
   }
 };
-async function currentUser() { return { id: 'u1', email: 'khoaiz@example.com' }; }
+// window.__signedOut runs the popup the way a fresh install does: no account.
+async function currentUser() { return window.__signedOut ? null : { id: 'u1', email: 'khoaiz@example.com' }; }
 
-const cache = { async claim() {}, async clear() {} };
-const outbox = { async count() { return 0; }, async flush() { return { synced: 0, pending: 0 }; } };
+// The local store and sync are tested on their own in tests/offline.test.js;
+// here `db` below stands in for both, so these only have to exist.
+const LOCAL_PREFIX = 'local:';
+const SYNC_TABLES = ['notes', 'read_later', 'clips', 'vault_items'];
+const VAULT_META = { salt: 'x', iterations: 1, verifier_iv: 'i', verifier_ct: 'c' };
+const localStore = {
+  async adopt(uid) { window.__adopted = uid; },
+  async clear() { window.__erased = true; },
+  async migrate() {},
+  async vaultMeta() { return window.__vaultSetUp === false ? null : VAULT_META; },
+  async setVaultMeta() { window.__vaultSetUp = true; },
+  async vaultConflict() { return window.__vaultConflict ? VAULT_META : null; },
+  async exportAll() { return { app: 'desksync', version: 1, tables: structuredClone(DATA) }; },
+  async importAll() { return { counts: { notes: 1 }, skippedVault: 0 }; }
+};
+const sync = {
+  onWarn: null,
+  async pending() { return 0; },
+  async run() { return { synced: 0, pulled: false, pending: 0, vaultConflict: !!window.__vaultConflict }; },
+  soon() {},
+  async resolveVault(keep) { window.__resolvedVault = keep; window.__vaultConflict = false; }
+};
+
+// The draft stash is real enough to assert against: it is just
+// chrome.storage.local, which is mocked above, and the editor's "do not lose the
+// note when the popup closes" path runs through it.
+
+const DRAFT_KEY = 'pendingDraft';
+const drafts = {
+  async get() { return store[DRAFT_KEY] || null; },
+  async put(entry) { store[DRAFT_KEY] = { ...entry, at: new Date().toISOString() }; },
+  async clear() { delete store[DRAFT_KEY]; },
+  async flush({ minAgeMs = 0 } = {}) {
+    const d = await this.get();
+    if (!d?.row?.id || !d.table) return { saved: 0 };
+    if (minAgeMs && Date.now() - new Date(d.at).getTime() < minAgeMs) return { saved: 0 };
+    await db.upsert(d.table, d.row);
+    const now = await this.get();
+    if (now && now.at === d.at) await this.clear();
+    return { saved: 1 };
+  }
+};
 
 const b64 = { from: (b) => 'b64', to: (s) => new Uint8Array() };
 
@@ -133,7 +180,6 @@ const vaultCrypto = {
 const db = {
   async list(table) { return structuredClone(DATA[table].map((r) => (r._plain ? encRow(r) : r))); },
   async insert(table, row) {
-    rejectUnknown(table, row);
     const full = { id: 'new-' + Math.random().toString(36).slice(2, 8), created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(), tags: [], ...row };
     // _plain is the test's window into a vault row. The stored row keeps only iv
@@ -144,8 +190,15 @@ const db = {
     }
     DATA[table].unshift(full); return full;
   },
+  async upsert(table, row) {
+    const existing = DATA[table].find((x) => x.id === row.id);
+    if (existing) return this.update(table, row.id, row);
+    const full = { created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      tags: [], ...row };
+    DATA[table].unshift(full);
+    return full;
+  },
   async update(table, id, patch) {
-    rejectUnknown(table, patch);
     const r = DATA[table].find((x) => x.id === id);
     if (r) { Object.assign(r, patch, { updated_at: new Date().toISOString() });
       if (r._plain && patch.ciphertext) r._plain = JSON.parse(decodeURIComponent(escape(atob(patch.ciphertext)))); }
@@ -169,14 +222,6 @@ const db = {
   async purgeAll(table) { DELETED[table] = []; }
 };
 
-// Simulates a database that has not had migration 001 applied, the way
-// PostgREST reports it. Toggle from the console: window.__missing = [].
-window.__missing = [];   // set to ['format'] to simulate an un-migrated database
-function rejectUnknown(table, row) {
-  for (const col of window.__missing || []) {
-    if (col in row) throw new Error(`Could not find the '${col}' column of '${table}' in the schema cache`);
-  }
-}
 
 function encRow(r) {
   return { id: r.id, updated_at: r.updated_at, iv: 'iv',
@@ -196,7 +241,6 @@ function resetFixtures() {
   Object.assign(store, { settings: { clipCapture: false }, captureOrigins: [],
                          tagColors: { supabase: '#19bf7a', launch: '#ffd84d' } });
   sessionKey = null;
-  window.__missing = [];
 }
 
 window.__DATA = DATA;

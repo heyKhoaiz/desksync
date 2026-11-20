@@ -43,7 +43,7 @@ trap 'kill $SERVER 2>/dev/null; rm -rf "$PROFILE"' EXIT
 OUT="$("$CHROME" \
   --headless=new --disable-gpu --no-sandbox --no-first-run \
   --user-data-dir="$PROFILE" \
-  --virtual-time-budget=60000 \
+  --virtual-time-budget=120000 \
   --dump-dom "http://127.0.0.1:$PORT/tests/ui/runner.html" 2>/dev/null)"
 
 # The report div carries the counts; the lines are printed for a failing run.

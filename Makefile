@@ -43,9 +43,13 @@ devices: ## List connected phones
 test: test-ext test-ui ## Run the extension tests, then the app's analysis and unit tests
 	cd mobile && flutter analyze && flutter test
 
-test-ext: ## Run the extension's offline-sync, markdown and autofill tests
+test-ext: ## Run the extension's offline-sync, plain-text, secret-detection, task-list and autofill tests
 	@node tests/offline.test.js
-	@node tests/markdown.test.js
+	@node tests/plaintext.test.js
+	@node tests/detect.test.js
+	@node tests/tasks.test.js
+	@node tests/format.test.js
+	@node tests/tags.test.js
 	@./tests/fillform.test.sh
 
 test-ui: ## Run the popup UI tests in headless Chrome

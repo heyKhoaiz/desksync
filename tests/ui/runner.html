@@ -52,7 +52,12 @@
         // Order matters: popup.js expects db, sb, vaultCrypto, md and friends to
         // already exist, exactly as it does inside the extension.
         await load('fixtures.js');
-        await load('../../extension/lib/markdown.js');
+        await load('../../extension/lib/plaintext.js');
+        await load('../../extension/lib/detect.js');
+        await load('../../extension/lib/tags.js');
+        await load('../../extension/lib/tasks.js');
+        await load('../../extension/lib/format.js');
+        await load('../../extension/lib/editor.js');
         await load('../../extension/popup.js');
         await load('cases.js');
       } catch (e) {
