@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Generate the extension's toolbar/store icons.
 
-Draws a dark rounded tile with the pink "sync" glyph from the popup's icon
-sprite, so the extension icon matches the UI. Run `make icons` after changing
-the palette here.
+The icon is the logo's arrow c (the c of "desksync", its top arm ending in a
+refresh arrow) in yellow on an ink tile. The c's outline comes from
+tools/brand/mark.json, which tools/brand/build_logo.py writes from the Inter
+typeface; this script only needs Pillow. extension/icons/logo.svg is the same
+icon as a vector.
 
     python3 tools/make_icons.py extension/icons
 """
-import math
+import json
 import sys
 from pathlib import Path
 
@@ -15,41 +17,29 @@ from PIL import Image, ImageDraw
 
 SIZES = (16, 48, 128)
 SS = 8                      # supersampling factor; downsampled with LANCZOS
-TILE = (24, 24, 27)         # --ink
-GLYPH = (251, 208, 236)     # --pink-strong
+TILE_R = 0.23               # corner radius, as a fraction of the side
+MARK = json.loads((Path(__file__).parent / 'brand' / 'mark.json').read_text())
 
 
-def arc_with_head(d, box, start, end, width, colour, head):
-    """An arc, with a small triangular arrowhead carrying on past its `end`."""
-    d.arc(box, start, end, fill=colour, width=width)
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    r = (box[2] - box[0]) / 2
-    a = math.radians(end)
-    base = (cx + r * math.cos(a), cy + r * math.sin(a))
-    tan = (-math.sin(a), math.cos(a))     # direction of travel along the arc
-    rad = (math.cos(a), math.sin(a))      # outward from the centre
-    d.polygon([
-        (base[0] + tan[0] * head * 1.3, base[1] + tan[1] * head * 1.3),
-        (base[0] - rad[0] * head, base[1] - rad[1] * head),
-        (base[0] + rad[0] * head, base[1] + rad[1] * head),
-    ], fill=colour)
+def mark_size(size):
+    # At 16px the c is drawn bigger, so its arrow and opening survive.
+    return 0.70 if size <= 16 else 0.56
 
 
 def icon(size):
     n = size * SS
     img = Image.new('RGBA', (n, n), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * 0.23, fill=TILE)
+    d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * TILE_R, fill=MARK['ink'])
 
-    # At 16px the glyph needs to be thicker, wider and blunter to survive downsampling.
-    small = size <= 16
-    stroke = n * (0.13 if small else 0.105)
-    inset = n * (0.22 if small else 0.24)
-    box = [inset, inset, n - inset, n - inset]
-    head = stroke * (1.0 if small else 1.05)
-    sweep = 165 if small else 170
-    arc_with_head(d, box, 120, 120 + sweep, round(stroke), GLYPH, head)
-    arc_with_head(d, box, -60, -60 + sweep, round(stroke), GLYPH, head)
+    # Even-odd fill: draw each ring into a mask, flipping what's inside.
+    k = mark_size(size) * n
+    mask = Image.new('1', (n, n), 0)
+    for ring in MARK['rings']:
+        layer = Image.new('1', (n, n), 0)
+        ImageDraw.Draw(layer).polygon([(n / 2 + x * k, n / 2 + y * k) for x, y in ring], fill=1)
+        mask = Image.frombytes('1', (n, n), bytes(a ^ b for a, b in zip(mask.tobytes(), layer.tobytes())))
+    img.paste(MARK['mark'], (0, 0), mask.convert('L'))
     return img.resize((size, size), Image.LANCZOS)
 
 

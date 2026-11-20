@@ -87,8 +87,8 @@ def main():
     body = markdown(fill((ROOT / 'PRIVACY.md').read_text()))
     page = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DeskSync privacy policy</title><link rel="icon" href="icon128.png"><link rel="stylesheet" href="style.css"></head>
-<body><header class="top"><a class="brand" href="./"><span class="mark">D</span> DeskSync</a></header>
+<title>DeskSync privacy policy</title><link rel="icon" href="logo.svg" type="image/svg+xml"><link rel="icon" href="icon128.png" sizes="128x128"><link rel="stylesheet" href="style.css"></head>
+<body><header class="top"><a class="brand" href="./"><img class="logo" src="wordmark.svg" width="113" height="26" alt="DeskSync"></a></header>
 <main class="doc">{body}</main>
 <footer class="foot"><span>DeskSync</span><a href="./">Home</a></footer></body></html>
 '''
@@ -96,6 +96,8 @@ def main():
     for n in range(1, 6):
         shutil.copy(ROOT / 'docs' / 'store' / f'app-{n}.png', OUT)
     shutil.copy(ROOT / 'extension' / 'icons' / 'icon128.png', OUT)
+    shutil.copy(ROOT / 'extension' / 'icons' / 'logo.svg', OUT)
+    shutil.copy(ROOT / 'docs' / 'brand' / 'wordmark.svg', OUT)
     # GitHub Pages serves the site on a custom domain named in a CNAME file.
     domain = os.environ.get('SITE_DOMAIN', '').strip()
     if domain:

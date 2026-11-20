@@ -8,8 +8,7 @@ a { color: inherit; }
 .top, main, .foot { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 .top { display: flex; align-items: center; justify-content: space-between; height: 72px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; }
-.mark { width: 32px; height: 32px; border-radius: 50%; background: var(--fg); color: var(--ground);
-  display: grid; place-items: center; font-size: 14px; }
+.logo { display: block; height: 26px; width: auto; }
 .top nav { display: flex; gap: 22px; font-size: 14px; }
 .top nav a { text-decoration: none; color: var(--fg-2); }
 .top nav a:hover { color: var(--fg); }
