@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "DeskSync – Notes, Read Later, Clipboard & Vault",
   "short_name": "DeskSync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minimum_chrome_version": "116",
-  "description": "Notes, read-later tabs, clipboard history and an encrypted password vault — synced across every Chrome profile and your phone.",
+  "description": "Keep notes, saved pages, copied text and logins in one private, searchable place. Works offline; sync is optional.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -22,27 +22,55 @@
   "side_panel": {
     "default_path": "popup.html?view=panel"
   },
-  "omnibox": { "keyword": "ds" },
+  "omnibox": {
+    "keyword": "ds"
+  },
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "unlimitedStorage", "tabs", "activeTab", "contextMenus", "alarms", "clipboardRead", "clipboardWrite", "scripting", "sidePanel", "favicon"],
-  "optional_host_permissions": ["*://*/*"],
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "activeTab",
+    "contextMenus",
+    "alarms",
+    "clipboardRead",
+    "clipboardWrite",
+    "scripting",
+    "sidePanel",
+    "favicon",
+    "offscreen"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
   "commands": {
     "save-tab": {
-      "suggested_key": { "default": "Alt+Shift+S" },
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
       "description": "Save current tab to Read Later"
     },
+    "fill-login": {
+      "suggested_key": {
+        "default": "Alt+Shift+L"
+      },
+      "description": "Fill a saved login on this page"
+    },
     "new-note": {
-      "suggested_key": { "default": "Alt+Shift+K" },
+      "suggested_key": {
+        "default": "Alt+Shift+K"
+      },
       "description": "Start a new note"
     },
     "save-clipboard": {
-      "suggested_key": { "default": "Alt+Shift+V" },
-      "description": "Save the clipboard as a clip"
+      "description": "Save the clipboard as a clip (set a key at chrome://extensions/shortcuts)"
     },
     "_execute_action": {
-      "suggested_key": { "default": "Alt+Shift+D" }
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      }
     }
   },
   "content_security_policy": {

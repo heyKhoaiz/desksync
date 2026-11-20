@@ -1,96 +1,153 @@
-# Chrome Web Store listing
+# Chrome Web Store submission
 
-Copy for the store form, the justification for each permission, and the screenshot list.
+Everything to paste into the developer dashboard, in the order the dashboard asks for it.
+Images are in [docs/store/](store/); re-render them with `node docs/store/make-shots.mjs`
+after a UI change.
 
-## Name
+**Before submitting:** put a support email in [PRIVACY.md](../PRIVACY.md) (*Contact*) and host
+that page at a public URL; the dashboard needs both.
 
-DeskSync – Notes, Read Later, Clipboard & Vault
+---
 
-## Short description (132 characters max)
+## 1. Store listing tab
 
-Notes, read-later links, clipboard history and a password vault in one search. Works offline, no account needed.
+**Name** (75 max)
+> DeskSync – Notes, Read Later, Clipboard & Vault
 
-## Detailed description
+**Summary / short description** (132 max; it is also `description` in the manifest)
+> Keep notes, saved pages, copied text and logins in one private, searchable place. Works offline; sync is optional.
 
-One place for the things you would otherwise lose in a tab.
+**Category:** Productivity · **Language:** English
 
-Press Alt+Shift+D and type. A single search covers your notes, the pages you saved to read later,
-your clipboard history and your password vault. Arrow down, press Enter, done.
+**Detailed description**
 
-**Capture in a keystroke**
-- Alt+Shift+S saves the tab you are on to Read later
-- Alt+Shift+K starts a note from any page
-- Alt+Shift+V saves what you just copied
-- Right-click selected text to save it as a note, with the page it came from
+> DeskSync keeps the things you need while browsing in one private, searchable place: notes you
+> write, pages you save, text you copy, and the logins you sign in with.
+>
+> **One search for all of it.** Press Alt+Shift+D and type. Notes, saved pages, copied text and
+> logins come up together. Arrow down, press Enter.
+>
+> **Notes that look like notes.** Bold, lists and checklists show as they look. Tick a task and the
+> list remembers how far along you are. Start a note as a checklist or an email.
+>
+> **Save in a keystroke.** Alt+Shift+S saves the tab you are on. Alt+Shift+K starts a note from any
+> page. Right-click selected text to keep it as a note, with the page it came from.
+>
+> **Every account, every backup code.** Keep several logins for one site, each with its own name,
+> and the backup codes that came with it. DeskSync shows how many codes are left and warns you
+> before they run out. Signed out? Press Alt+Shift+L on the sign-in page: one account fills at
+> once; with several, you choose.
+>
+> **Private by design.** Logins and backup codes are encrypted on your device with a master
+> password that never leaves it. A copied password is cleared from the clipboard after 30 seconds.
+> Clipboard history is off until you turn it on, site by site, and it skips passwords and API keys.
+>
+> **Stays out of your way.** Works the moment it is installed, with no account. Keep it in the
+> side panel while you read. Search from the address bar by typing "ds". Light and dark themes.
+>
+> **Free, with Pro coming.** Every feature is free on one computer, with no limit on notes, saved
+> pages or logins. Free keeps the newest 200 captured clips, 10 templates, and the trash for 30
+> days. DeskSync Pro, coming soon as a paid plan, will add sync across your computers and the
+> Android app, and lift those limits. Join the waitlist at desksync.org. The vault stays end-to-end
+> encrypted: nobody but you can read it.
 
-**Find it again**
-- One search over everything, including the full text of notes and your comments on saved links
-- Tags you can filter by, rename and colour
-- Today: pinned items, unread links and anything from the last day
-- Type "ds" in the address bar to search without opening anything
+**Images**
 
-**For developers**
-- Commands and code clips are shown in monospace
-- API keys and tokens are masked in the list and kept out of search, and move to the encrypted
-  vault in one click
-- Captured clipboard skips anything that looks like a secret
-
-**For marketers and writers**
-- Save a quote with its source address
-- Add a note to every saved link: why it matters, what to do with it
-- Insert a saved reply or snippet into the text box you are typing in (Shift+Enter)
-- Copy a tagged collection out as a list for a brief or a doc
-
-**Stays out of your way**
-- Works the moment it is installed. No account, nothing leaves your browser
-- Keep it open in the side panel while you work
-- An unread count on the icon
-- Light and dark themes
-
-**Optional sync**
-Sign in to keep your Chrome profiles and the Android app in step. The vault is end-to-end
-encrypted with a master password that never leaves your device.
-
-## Category
-
-Productivity
-
-## Single purpose (for the review form)
-
-Save, find and reuse your own notes, links, copied text and logins from one search in the browser.
-
-## Permission justifications
-
-| Permission | Why |
+| Field | File |
 |---|---|
-| `storage`, `unlimitedStorage` | Everything is stored in the browser first. Clipboard history can pass the 10 MB default quota. |
-| `tabs` | Read the current tab's title and address to save it to Read later, and to know which saved login belongs to the page. |
-| `activeTab` | Type a note or clip into the focused text box on the current page when the user picks "Insert" from the popup. |
-| `contextMenus` | "Save page / link to Read Later" and "Save selection as a note". |
-| `alarms` | Background sync, and locking the vault after inactivity. |
-| `clipboardRead` | "Save the clipboard", when the user asks, and the preview of what will be saved. |
-| `clipboardWrite` | Copy a note, clip, link or password when the user clicks Copy. |
-| `scripting` | Fill a saved login, insert text into the page, and capture copies on sites the user approved. Every injection follows a user action or an approval for that site. |
-| `sidePanel` | Show DeskSync beside the page. |
-| `favicon` | Show each saved link's site icon from Chrome's cache instead of fetching it. |
-| Optional host access (`*://*/*`) | Requested per site, only when the user approves clipboard capture on that site, fills a login there, or inserts text from the side panel. Never requested at install. |
-| `omnibox` keyword "ds" | Search saved items from the address bar. |
+| Icon (128×128) | `extension/icons/icon128.png` |
+| Screenshot 1 · one search | `docs/store/screenshot-1.png` |
+| Screenshot 2 · notes | `docs/store/screenshot-2.png` |
+| Screenshot 3 · accounts and backup codes | `docs/store/screenshot-3.png` |
+| Screenshot 4 · fill by shortcut | `docs/store/screenshot-4.png` |
+| Screenshot 5 · side panel | `docs/store/screenshot-5.png` |
+| Small promo tile (440×280) | `docs/store/promo-small.png` |
 
-Remote code: none. The Supabase client is bundled (`lib/supabase.js`).
+All sample data in the images is made up. No real logos: the sign-in page in screenshot 4 is a
+plain form with no brand marks.
 
-Data use: see [PRIVACY.md](../PRIVACY.md). No data is sold, used for advertising or shared.
+---
 
-## Screenshots (1280×800, five)
+## 2. Privacy practices tab
 
-Take these with sample data, never real notes or keys.
+**Single purpose**
+> DeskSync keeps the things you need while browsing (notes, saved pages, copied text and logins)
+> in one private, searchable place.
 
-1. **Search everything**: the popup with a query typed and results from all four types.
-2. **Developer**: the Clipboard filter with a command in monospace and a masked API key selected,
-   showing the "To vault" button.
-3. **Marketer**: a saved link with a note filled in, and the #launch tag filter active.
-4. **Daily**: the Today view, with the unread count visible on the toolbar icon.
-5. **Side panel**: DeskSync docked beside an article, with a note being written.
+**Permission justifications** (one box per permission)
 
-## Promo tile (440×280)
+| Permission | Justification to paste |
+|---|---|
+| `storage` | Every note, saved page, clip and encrypted login is stored in the browser first, so the extension works offline and with no account. |
+| `unlimitedStorage` | Clipboard history and long notes can pass the 10 MB default limit of local storage. |
+| `tabs` | To save the current tab to Read later (its title and address), and to show the logins saved for the site in front. |
+| `activeTab` | When the user presses Alt+Shift+L, or Fill or Insert in the popup, DeskSync gets access to that one page only, to type the chosen login or text into it. No access to other sites. |
+| `scripting` | Injects the form filler, the account chooser and the text insert into the page the user acted on, and the clipboard capture script on sites the user approved. Nothing is injected without a user action or approval. |
+| `contextMenus` | "Save page to Read Later", "Save link to Read Later" and "Save selection as a note" in the right-click menu. |
+| `alarms` | Background sync when signed in, locking the vault after inactivity, and clearing a copied password from the clipboard after 30 seconds. |
+| `clipboardRead` | "Save the clipboard", when the user asks for it, and its preview. |
+| `clipboardWrite` | Copy buttons for notes, links, clips, passwords and backup codes. |
+| `offscreen` | Clears a copied password or backup code from the clipboard 30 seconds later. The service worker has no clipboard, so a hidden page does this, and only if the clipboard still holds what DeskSync copied. |
+| `sidePanel` | Lets the user keep DeskSync open beside the page instead of in the popup. |
+| `favicon` | Shows each saved page's site icon from Chrome's own cache, so nothing is fetched from the site. |
+| Optional host access (`*://*/*`) | Never requested at install. Asked for one site at a time, only when the user turns on clipboard capture for that site, or fills or inserts from the side panel (which has no activeTab). |
+| `omnibox` keyword "ds" | Search saved notes, pages and clips from the address bar. |
 
-The search field with "launch" typed and three mixed results under it, on the brand grey.
+**Remote code:** No, I am not using remote code. The Supabase client is bundled
+(`extension/lib/supabase.js`); there is no `eval` and no script loaded from the network.
+
+**Data usage** (tick these; collection only happens when the user signs in to sync)
+
+| Category | Tick | What and why |
+|---|---|---|
+| Personally identifiable information | ✓ | Email address, to sign in to sync. |
+| Authentication information | ✓ | Saved logins and backup codes, end-to-end encrypted on the device before they are synced; the server cannot read them. |
+| Website content | ✓ | Notes, clipped text and saved page titles and addresses the user chooses to save, to sync them. |
+| Personal communications | | Not collected. |
+| Web history | | Not collected. Only pages the user explicitly saves; browsing history is never read. |
+| User activity | | Not collected. No analytics, no tracking. |
+| Health, financial, location | | Not collected. |
+
+Certify all three:
+- I do not sell or transfer user data to third parties, outside of the approved use cases.
+- I do not use or transfer user data for purposes that are unrelated to my item's single purpose.
+- I do not use or transfer user data to determine creditworthiness or for lending purposes.
+
+**Privacy policy URL:** the public address of [PRIVACY.md](../PRIVACY.md).
+
+---
+
+## 3. Notes for the reviewer (Distribution tab → test instructions)
+
+> DeskSync works with no account: install it and everything is saved in the browser.
+>
+> To try the vault:
+> 1. Click the DeskSync icon, then Vault on the left, then "Set up your vault". Choose any master
+>    password of 10 or more characters.
+> 2. "New login": name "Example", website https://example.com, any username and password.
+>    Save.
+> 3. Open the login, Edit, and paste these backup codes into "Backup codes", then Save:
+>    `a1b2c-3d4e5` `f6a7b-8c9d0` `11aa2-bb33c`. The login shows "3 of 3 codes left"; Copy on a code
+>    marks it used, with Undo.
+> 4. To fill: save a login for a site with a sign-in form, for example website
+>    https://github.com with any username and password, then open https://github.com/login and
+>    press Alt+Shift+L. The username and password fields are filled. Save a second login for the
+>    same site and press Alt+Shift+L again: a chooser lists both by name and username.
+>
+> Clipboard capture is off by default; Settings → Clipboard turns it on, one site at a time.
+> Sync needs an account and is optional; no test account is needed to review the extension.
+
+---
+
+## Checklist before upload
+
+- [ ] In `.env`: `SUPPORT_EMAIL` and `PRIVACY_URL` (and `STORE_URL` once the listing exists)
+- [ ] Waitlist table: run `supabase/migrations/003_waitlist.sql` in the Supabase SQL editor
+- [ ] desksync.org's DNS points at the VPS (A record `@` → 144.217.95.90, `www` → the same,
+      proxy off), then `make publish-site`. The site is at https://desksync.org, the policy at
+      https://desksync.org/privacy.html (`PRIVACY_URL`)
+- [ ] `make test-ext && make test-ui` pass
+- [ ] `node docs/store/make-shots.mjs` re-run after the last UI change
+- [ ] `make store-check` passes (manifest limits, files, icons, no remote code, settings filled in)
+- [ ] `make zip` and upload `dist/desksync-extension.zip`
+- [ ] Version in `extension/manifest.json` raised above the last published one

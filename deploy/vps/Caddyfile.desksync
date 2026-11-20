@@ -1,0 +1,14 @@
+
+desksync.org {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	reverse_proxy desksync-site:80
+}
+
+www.desksync.org {
+	redir https://desksync.org{uri} permanent
+}

@@ -32,6 +32,14 @@ function makeCtx({ signedIn = true } = {}) {
     : value);
 
   function from(table) {
+    // ctx.__plan: 'pro' (default), 'free', or 'none' for a database without migration 004.
+    if (table === 'plans') {
+      return { select() { return { maybeSingle() {
+        calls.push(['select', 'plans']);
+        if (ctx.__plan === 'none') return answer({ data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.plans' in the schema cache" } });
+        return answer({ data: ctx.__plan === 'free' ? null : { plan: 'pro', pro_until: ctx.__proUntil || null }, error: null });
+      } }; } };
+    }
     if (table === 'vault_meta') {
       return {
         select() { return { maybeSingle() { return answer({ data: structuredClone(server.vault_meta), error: null }); } }; },
@@ -88,7 +96,7 @@ function makeCtx({ signedIn = true } = {}) {
       getSession: async () => ({ data: { session: ctx.__user ? { user: ctx.__user } : null } })
     } }) },
     __local: local, __server: server, __calls: calls, __offline: false,
-    __user: signedIn ? { id: 'u1' } : null, __refuse: null
+    __user: signedIn ? { id: 'u1' } : null, __refuse: null, __plan: 'pro', __proUntil: null
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync('extension/lib/store.js', 'utf8'), ctx);
@@ -408,6 +416,58 @@ async function test(name, fn) {
     assert.strictEqual(ctx.__server.vault_meta.salt, 'mine');
     assert.deepStrictEqual(ctx.__server.vault_items.map((r) => r.id), ['v-mine']);
     assert.deepStrictEqual((await run(ctx, `return db.list('vault_items')`)).map((r) => r.id), ['v-mine']);
+  });
+
+  console.log('\nplans');
+
+  await test('a Free account does not sync, and keeps everything here', async () => {
+    const ctx = makeCtx();
+    ctx.__plan = 'free';
+    await run(ctx, `await db.insert('notes', { id: 'n1', title: 'Mine' })`);
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.needsPro, true);
+    assert.strictEqual(res.synced, 0);
+    assert.deepStrictEqual(ctx.__calls.map((c) => c[1]), ['plans'], 'only the plan is asked for');
+    assert.strictEqual(ctx.__server.notes.length, 0);
+    assert.strictEqual((await run(ctx, `return db.list('notes')`))[0].title, 'Mine');
+    assert.strictEqual((await run(ctx, `return plan.limits()`)).clips, 200);
+  });
+
+  await test('Pro syncs and has no limits', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await db.insert('notes', { id: 'n1' })`);
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.synced, 1);
+    const l = await run(ctx, `return plan.limits()`);
+    assert.strictEqual(l.templates, Infinity);
+    assert.strictEqual(l.trashDays, 365);
+  });
+
+  await test('Pro that has ended is Free again', async () => {
+    const ctx = makeCtx();
+    ctx.__proUntil = '2020-01-01T00:00:00Z';
+    const res = await run(ctx, `return sync.run()`);
+    assert.strictEqual(res.needsPro, true);
+    assert.strictEqual(await run(ctx, `return plan.name()`), 'free');
+  });
+
+  await test('a database without migration 004 syncs as before', async () => {
+    const ctx = makeCtx();
+    ctx.__plan = 'none';
+    await run(ctx, `await db.insert('notes', { id: 'n1' })`);
+    assert.strictEqual((await run(ctx, `return sync.run()`)).synced, 1);
+  });
+
+  await test('offline, the last plan stands', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await sync.run()`);
+    ctx.__offline = true;
+    assert.strictEqual(await run(ctx, `return plan.refresh()`), 'pro');
+  });
+
+  await test('signed out is Free', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    assert.strictEqual(await run(ctx, `return plan.refresh()`), 'free');
   });
 
   console.log('\nexport and import');

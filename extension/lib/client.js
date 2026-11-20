@@ -34,6 +34,59 @@ async function currentUser() {
 }
 
 // ---------------------------------------------------------------------------
+// Plans: Free and Pro
+//
+// Free has every feature on one device. Pro adds sync (other computers, the
+// phone) and lifts the few limits below. Nothing that keeps your data safe is
+// ever limited: export, encryption, auto-lock, clipboard clearing.
+//
+// The server is the authority (`plans` table, supabase/migrations/004_plans.sql;
+// row level security refuses synced rows to an account without Pro). The
+// extension keeps the last answer in chrome.storage.local so it works offline.
+// ---------------------------------------------------------------------------
+const PLANS = {
+  free: { name: 'free', sync: false, clips: 200, templates: 10, trashDays: 30 },
+  pro: { name: 'pro', sync: true, clips: Infinity, templates: Infinity, trashDays: 365 }
+};
+// The table is missing on a database without migration 004 (a self-hosted
+// project, say). Such a database sells nothing, so sync works as it always did.
+const NO_PLANS_TABLE = /could not find the table|relation .*plans.* does not exist|PGRST205|42P01/i;
+
+const plan = {
+  async _read() {
+    const { plan: p } = await chrome.storage.local.get('plan');
+    return p || { name: 'free' };
+  },
+  // 'pro' or 'free', from the last answer the server gave.
+  async name() {
+    const p = await this._read();
+    if (p.name !== 'pro') return 'free';
+    return p.until && new Date(p.until) < new Date() ? 'free' : 'pro';
+  },
+  async limits() { return PLANS[await this.name()]; },
+  // Signed out is Free. Offline, the last answer stands.
+  async refresh() {
+    if (!(await currentUser())) {
+      await chrome.storage.local.set({ plan: { name: 'free' } });
+      return 'free';
+    }
+    const { data, error } = await sb.from('plans').select('plan, pro_until').maybeSingle();
+    if (error) {
+      if (NO_PLANS_TABLE.test(`${error.code} ${error.message}`)) {
+        await chrome.storage.local.set({ plan: { name: 'pro', until: null, unmanaged: true } });
+        return 'pro';
+      }
+      // Offline with no answer yet is unknown, not Free: thrown, so sync
+      // reports offline and keeps the changes waiting.
+      if (isOffline(error) && (await chrome.storage.local.get('plan')).plan) return this.name();
+      throw error;
+    }
+    await chrome.storage.local.set({ plan: { name: data?.plan === 'pro' ? 'pro' : 'free', until: data?.pro_until || null } });
+    return this.name();
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Sync: the local store (lib/store.js) is the truth, Supabase a mirror
 //
 // Every read and write goes to the store and returns at once. When the user is
@@ -93,11 +146,13 @@ const sync = {
   },
 
   async _run() {
-    const done = async (synced, pulled) => ({ synced, pulled, pending: await store.pending(),
-      vaultConflict: !!(await store.vaultConflict()) });
+    const done = async (synced, pulled, needsPro = false) => ({ synced, pulled, needsPro,
+      pending: needsPro ? 0 : await store.pending(), vaultConflict: !!(await store.vaultConflict()) });
     if (!(await currentUser())) return done(0, false);
     let synced = 0;
     try {
+      // Sync is Pro. A Free account keeps everything here, untouched.
+      if ((await plan.refresh()) !== 'pro') return done(0, false, true);
       // The vault's master-password check first: until both sides agree on it,
       // vault items cannot move in either direction.
       const vaultOk = await this._syncVaultMeta();

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the autofill field-picking in extension/popup.js against a set of login
+# Checks the autofill field-picking in extension/lib/fill.js against a set of login
 # form shapes, by running the shipped fillForm() in headless Chrome.
 #
 #   tests/fillform.test.sh          (or: make test-ext)
@@ -27,9 +27,9 @@ trap 'rm -rf "$work"' EXIT
 python3 - "$work" <<'PY'
 import json, pathlib, sys
 work = pathlib.Path(sys.argv[1])
-src = pathlib.Path('extension/popup.js').read_text()
+src = pathlib.Path('extension/lib/fill.js').read_text()
 
-# Pull fillForm out of popup.js so the test runs the shipped source, not a copy.
+# Pull fillForm out of lib/fill.js so the test runs the shipped source, not a copy.
 start = src.index('function fillForm(')
 depth, i = 0, src.index('{', start)
 for j in range(i, len(src)):
@@ -62,6 +62,10 @@ CASES = {
         0, False, {'u': '', 'p': ''}),
     'no login form at all': (
         '<input id="t" type="text" name="comment">', 0, False, {'t': ''}),
+    'two-step sign-in: the username page': (
+        '<input id="u" type="email" autocomplete="username"><button>Next</button>', 1, False, {'u': 'USER'}),
+    'a newsletter box alone is not a sign-in': (
+        '<input id="n" type="email" name="newsletter">', 0, False, {'n': ''}),
     'login form below a newsletter box': (
         '<input id="n" type="text" name="newsletter_email"><hr><input id="l" type="text" name="login"><input id="p" type="password">',
         2, True, {'n': '', 'l': 'USER', 'p': 'PASS'}),

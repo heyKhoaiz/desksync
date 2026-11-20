@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext zip icons app apk devices test test-ext clean check-env
+.PHONY: help env ext zip site publish-site store-check icons app apk devices test test-ext clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -20,12 +20,24 @@ check-env:
 ext: check-env ## Build the extension into dist/extension, ready for Load unpacked
 	@rm -rf dist/extension && mkdir -p dist && cp -r extension dist/extension
 	@sed -i 's|https://YOUR-PROJECT.supabase.co|$(SUPABASE_URL)|; s|YOUR-ANON-KEY|$(SUPABASE_ANON_KEY)|' dist/extension/config.js
+	@if [ -n "$(SUPPORT_EMAIL)" ]; then sed -i 's|YOUR-SUPPORT-EMAIL|$(SUPPORT_EMAIL)|' dist/extension/config.js; fi
+	@if [ -n "$(PRIVACY_URL)" ]; then sed -i 's|YOUR-PRIVACY-URL|$(PRIVACY_URL)|' dist/extension/config.js; fi
+	@if [ -n "$(PRO_URL)" ]; then sed -i 's|YOUR-PRO-URL|$(PRO_URL)|' dist/extension/config.js; fi
 	@echo "Built. In chrome://extensions use Load unpacked (first time) or reload on: $(CURDIR)/dist/extension"
 
 zip: ext ## Package the built extension as dist/desksync-extension.zip
 	@rm -f dist/desksync-extension.zip
 	@cd dist/extension && zip -qr ../desksync-extension.zip .
 	@echo "Zip: $(CURDIR)/dist/desksync-extension.zip"
+
+site: ## Build the website (landing page, privacy policy, waitlist) into dist/site
+	@SUPABASE_URL="$(SUPABASE_URL)" SUPABASE_ANON_KEY="$(SUPABASE_ANON_KEY)" SUPPORT_EMAIL="$(SUPPORT_EMAIL)" STORE_URL="$(STORE_URL)" SITE_DOMAIN="$(SITE_DOMAIN)" python3 tools/build_site.py
+
+publish-site: site ## Publish dist/site to the VPS, where desksync.org is served (deploy/vps/)
+	@./tools/publish_site.sh
+
+store-check: ext ## Check the build against the Chrome Web Store's rules before uploading
+	@node tools/store-check.mjs dist/extension
 
 icons: ## Regenerate the extension icons from tools/make_icons.py
 	@python3 tools/make_icons.py extension/icons
@@ -50,6 +62,8 @@ test-ext: ## Run the extension's offline-sync, plain-text, secret-detection, tas
 	@node tests/tasks.test.js
 	@node tests/format.test.js
 	@node tests/tags.test.js
+	@node tests/codes.test.js
+	@node tests/sites.test.js
 	@./tests/fillform.test.sh
 
 test-ui: ## Run the popup UI tests in headless Chrome

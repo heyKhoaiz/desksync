@@ -30,9 +30,40 @@
         s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
         document.head.append(s);
       });
-      for (const src of ['fixtures.js', '../../extension/lib/plaintext.js', '../../extension/lib/detect.js', '../../extension/lib/tags.js',
-        '../../extension/lib/tasks.js', '../../extension/lib/format.js', '../../extension/lib/editor.js',
-        '../../extension/popup.js']) await load(src);
+      for (const src of ['fixtures.js', '../../extension/lib/plaintext.js', '../../extension/lib/detect.js', '../../extension/lib/tags.js', '../../extension/lib/codes.js', '../../extension/lib/sites.js', '../../extension/lib/fill.js',
+        '../../extension/lib/tasks.js', '../../extension/lib/format.js', '../../extension/lib/editor.js']) await load(src);
+
+      // Setting the scene, for the store screenshots (docs/store/):
+      //   store=1       more sample logins: two Instagram accounts, backup codes
+      //   vault=open    the vault unlocked
+      //   filter=vault  a section of the rail
+      //   select=vault:v1  an item chosen
+      //   theme=dark
+      const p = new URLSearchParams(location.search);
+      if (p.get('store')) {
+        const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+        const gh = DATA.vault_items.find((v) => v.id === 'v1')._plain;
+        gh.codes = ['a1b2c-3d4e5', 'f6a7b-8c9d0', '11aa2-bb33c', '44dd5-ee66f', '77ff8-0a1b2', '3c4d5-e6f70', '81a2b-3c4d5', '6e7f8-0a9b1']
+          .map((c, i) => ({ c, used: i < 2 ? day(9 - i * 3) : null }));
+        gh.title = 'GitHub · work';
+        DATA.vault_items.push(
+          { id: 'v4', _plain: { title: 'Instagram · Brand A', url: 'https://www.instagram.com', username: 'brand_a.official', password: 'x7#kP9!mQ2', notes: 'Client: Brand A', tags: ['client-a'] }, updated_at: day(3) },
+          { id: 'v5', _plain: { title: 'Instagram · Brand B', url: 'https://www.instagram.com', username: 'brandb_studio', password: 'Lq8$wZ3@vT', notes: 'Client: Brand B', tags: ['client-b'] }, updated_at: day(5) },
+          { id: 'v6', _plain: { title: 'X · personal', url: 'https://x.com', username: '@khoaiz', password: 'Rt5^nB1&cY', notes: '', tags: [] }, updated_at: day(12) });
+      }
+      if (p.get('vault') === 'open') sessionKey = 'KEY';
+      await load('../../extension/popup.js');
+
+      const until = async (ok) => { for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 30)); };
+      await until(() => state.loaded && (p.get('vault') !== 'open' || state.vault.length));
+      if (p.get('theme')) { applyTheme(p.get('theme')); }
+      if (p.get('filter')) await setFilter(p.get('filter'));
+      if (p.get('select')) {
+        const [kind, id] = p.get('select').split(':');
+        const i = state.rows.findIndex((r) => r.kind === kind && r.id === id);
+        if (i > -1) { state.picked = true; setActive(i, true); await paneQueue; }
+      }
+      if (p.get('show') === 'codes') { state.showCodes = true; drawDetail(state.rows[state.active]); }
       document.documentElement.dataset.demoReady = '1';
     })().catch((e) => { document.body.textContent = 'Demo failed to load: ' + e.message; });
   </script>

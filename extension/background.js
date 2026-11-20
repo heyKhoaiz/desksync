@@ -1,10 +1,10 @@
 // Service worker: read-later saving (context menu + shortcut), clipboard capture, vault auto-lock.
-importScripts('lib/supabase.js', 'config.js', 'lib/store.js', 'lib/client.js', 'lib/crypto.js', 'lib/detect.js');
+importScripts('lib/supabase.js', 'config.js', 'lib/store.js', 'lib/client.js', 'lib/crypto.js', 'lib/detect.js', 'lib/sites.js', 'lib/fill.js');
 
 // skipSecrets: a key or token copied on an approved site is not recorded. On by
 // default, because clipboard history is stored as plain text.
 // unreadBadge: the icon shows how many Read later links are still unread.
-const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false };
+const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false, clearClipboard: true };
 
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
@@ -67,7 +67,9 @@ async function saveTab(tab) {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  // When DeskSync was first installed: the review prompt waits a week after it.
+  if (reason === 'install') chrome.storage.local.set({ installedAt: Date.now() });
   chrome.contextMenus.create({ id: 'save-page', title: 'Save page to Read Later', contexts: ['page'] });
   chrome.contextMenus.create({ id: 'save-link', title: 'Save link to Read Later', contexts: ['link'] });
   chrome.contextMenus.create({ id: 'save-note', title: 'Save selection as a note', contexts: ['selection'] });
@@ -127,7 +129,75 @@ async function openWith(action) {
   }
 }
 
+// ---------- Alt+Shift+L: fill a saved login on this page ----------
+// Works without opening DeskSync. The shortcut grants activeTab for the page
+// in front, so no access to every site is needed. One saved login for the
+// site fills at once; several show a chooser on the page with names and
+// usernames only. A locked vault opens DeskSync to unlock it.
+async function vaultLogins() {
+  const key = await vaultCrypto.loadSessionKey();
+  if (!key) return null;
+  const out = [];
+  for (const r of await db.list('vault_items')) {
+    try { out.push({ ...JSON.parse(await vaultCrypto.decrypt(key, r.iv, r.ciphertext)), id: r.id }); }
+    catch { /* an item from another vault: skipped */ }
+  }
+  return out;
+}
+
+const inject = (tabId, func, args = []) => chrome.scripting.executeScript({ target: { tabId }, func, args })
+  .then(([r]) => r?.result);
+
+async function fillLogin(tabId, login) {
+  const r = await inject(tabId, fillForm, [login.username || '', login.password || '']);
+  if (r?.usernameOnly) { badge('1/2'); return inject(tabId, pageNotice, ['Username filled. Continue, then press Alt+Shift+L again for the password.']); }
+  if (!r?.foundPassword) return inject(tabId, pageNotice, ['No sign-in form found on this page.']);
+  badge('✓');
+}
+
+async function fillOnPage(tab) {
+  if (!tab?.id || !/^https?:/.test(tab.url || '')) return badge('×', '#dc2626');
+  const host = sites.hostOf(tab.url);
+  try {
+    const logins = await vaultLogins();
+    if (!logins) {
+      await inject(tab.id, pageNotice, ['DeskSync: unlock the vault, then press Alt+Shift+L again.']);
+      return openWith('vault');
+    }
+    const here = logins.filter((l) => sites.matches(l.url, host));
+    if (!here.length) return inject(tab.id, pageNotice, [`DeskSync has no saved login for ${host}.`]);
+    if (here.length === 1) return fillLogin(tab.id, here[0]);
+    // Several: the page is shown names and usernames, never passwords, with a
+    // one-time token. The choice comes back as a message, checked below.
+    const token = crypto.randomUUID();
+    await chrome.storage.session.set({ fillChoice: { tabId: tab.id, host, ids: here.map((l) => l.id), token, at: Date.now() } });
+    // By name, so the same site always lists its accounts in the same order.
+    const offered = here.map((l) => ({ id: l.id, title: l.title || host, username: l.username || '' }))
+      .sort((a, b) => a.title.localeCompare(b.title) || a.username.localeCompare(b.username));
+    await inject(tab.id, pageChooser, [offered, token]);
+  } catch (e) {
+    console.warn('[DeskSync] fill', e);
+    badge('×', '#dc2626');
+  }
+}
+
+// The account picked in the chooser. Taken only from the tab it was offered
+// in, with the token it was offered with, within a minute, for one of the ids
+// offered, and only once.
+async function fillChoice(msg, sender) {
+  const { fillChoice: c } = await chrome.storage.session.get('fillChoice');
+  if (!c || !sender.tab || sender.tab.id !== c.tabId || msg.token !== c.token || !c.ids.includes(msg.id)) return;
+  if (Date.now() - c.at > 60000 || sites.hostOf(sender.tab.url || '') !== c.host) return;
+  await chrome.storage.session.remove('fillChoice');
+  const login = (await vaultLogins())?.find((l) => l.id === msg.id);
+  if (login) await fillLogin(sender.tab.id, login);
+}
+
 chrome.commands.onCommand.addListener(async (cmd) => {
+  if (cmd === 'fill-login') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return fillOnPage(tab);
+  }
   if (cmd === 'new-note') return openWith('note');
   if (cmd === 'save-clipboard') return openWith('clip');
   if (cmd !== 'save-tab') return;
@@ -139,15 +209,27 @@ chrome.commands.onCommand.addListener(async (cmd) => {
 let lastClip = '';
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === 'clip') { handleClip(msg, sender); return false; }
+  // From the chooser on a page: checked against what was offered, in fillChoice.
+  if (msg?.type === 'fill-choice' && sender.id === chrome.runtime.id && sender.tab) { fillChoice(msg, sender); return false; }
   // A popup on its way out, asking for the note it was typing to be written.
   // It will not be there to hear the answer, which is why the draft is in
   // storage rather than in this message.
-  // From the extension's own pages only: our content script shares the
-  // extension's id, so the id alone does not tell a page from a tab.
-  const fromPage = sender.id === chrome.runtime.id && !sender.tab;
+  // From the extension's own pages only (popup, side panel, or DeskSync open
+  // in a tab). Our content script shares the extension's id, so the id alone
+  // does not tell them apart; the page's address does: only the extension's
+  // own pages live at chrome-extension://<id>/.
+  const fromPage = sender.id === chrome.runtime.id && (sender.url || '').startsWith(chrome.runtime.getURL(''));
   if (msg?.type === 'flush-draft') {
     if (!fromPage) return false;
     flushDraft().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
+    return true;
+  }
+  // A password or code was copied: clear it from the clipboard in 30 s.
+  if (msg?.type === 'clear-clipboard-later') {
+    if (!fromPage || typeof msg.hash !== 'string') return false;
+    chrome.storage.session.set({ clipClear: { hash: msg.hash } })
+      .then(() => chrome.alarms.create('clip-clear', { when: Date.now() + 30000 }))
+      .then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
     return true;
   }
   if (msg?.type === 'save-current-tab') {
@@ -266,24 +348,62 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
 });
 
 // ---------- Vault auto-lock, offline sync ----------
-// Captured clips are kept to CLIP_HISTORY_LIMIT, newest first; pinned ones
-// never count against it. Without this the history grew for ever, and every
-// save and every address-bar search re-read all of it.
+// Free keeps the newest 200 captured clips; Pro keeps them all (lib/client.js,
+// PLANS). Only captured clips count: those carry the site they came from.
+// Clips you saved yourself (no site) and pinned ones are never removed.
 async function trimClips() {
-  const limit = DESKSYNC_CONFIG.CLIP_HISTORY_LIMIT || 200;
+  const limit = (await plan.limits()).clips;
+  if (!Number.isFinite(limit)) return;
   const clips = await db.list('clips', { order: 'created_at' });
-  const extra = clips.filter((c) => !c.pinned).slice(limit);
+  const extra = clips.filter((c) => !c.pinned && c.source_url).slice(limit);
   for (const c of extra) await db.remove('clips', c.id, { content: '', source_url: null });
+}
+
+// The trash keeps a deleted item for 30 days on Free, a year on Pro, then
+// deletes it for good. Checked a few times a day; cheap when there is nothing.
+const TRASH_TABLES = ['notes', 'read_later', 'clips', 'vault_items'];
+async function sweepTrash() {
+  const cutoff = Date.now() - (await plan.limits()).trashDays * 86400000;
+  for (const t of TRASH_TABLES) {
+    for (const r of await db.listDeleted(t)) {
+      if (new Date(r.deleted_at).getTime() < cutoff) await db.purge(t, r.id);
+    }
+  }
+}
+
+// ---------- Clearing a copied password ----------
+// The service worker has no clipboard of its own, so an offscreen document
+// does the reading and clearing. It only clears when the clipboard still holds
+// what was copied (compared by hash): anything copied since is left alone.
+async function clearClipboardIfUnchanged() {
+  const { clipClear } = await chrome.storage.session.get('clipClear');
+  if (!clipClear?.hash) return { cleared: false };
+  await chrome.storage.session.remove('clipClear');
+  try {
+    if (!(await chrome.offscreen.hasDocument?.())) {
+      await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['CLIPBOARD'],
+        justification: 'Clear a copied password or backup code from the clipboard' });
+    }
+    return await chrome.runtime.sendMessage({ target: 'offscreen', type: 'clear-if-same', hash: clipClear.hash });
+  } catch (e) {
+    console.warn('[DeskSync] could not clear the clipboard', e);
+    return { cleared: false };
+  } finally {
+    chrome.offscreen.closeDocument().catch(() => {});
+  }
 }
 
 // A worker started for any reason (not only install or browser start) makes
 // sure its alarms exist and the badge is right.
 chrome.alarms.get('vault-autolock').then((a) => { if (!a) chrome.alarms.create('vault-autolock', { periodInMinutes: 1 }); });
 chrome.alarms.get('outbox-flush').then((a) => { if (!a) chrome.alarms.create('outbox-flush', { periodInMinutes: 1 }); });
+chrome.alarms.get('trash-sweep').then((a) => { if (!a) chrome.alarms.create('trash-sweep', { delayInMinutes: 1, periodInMinutes: 360 }); });
 updateBadge();
 
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name === 'badge-reset') { badge._flash = false; return updateBadge(); }
+  if (a.name === 'trash-sweep') return sweepTrash().catch((e) => console.error('[DeskSync] trash sweep', e));
+  if (a.name === 'clip-clear') return clearClipboardIfUnchanged();
   if (a.name === 'vault-autolock') {
     const { vaultLockAt } = await chrome.storage.session.get('vaultLockAt');
     if (vaultLockAt && Date.now() > vaultLockAt) await vaultCrypto.lock();

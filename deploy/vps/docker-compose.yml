@@ -1,0 +1,23 @@
+# DeskSync's website on the VPS (/home/ubuntu/desksync on khoaiz-vps).
+#
+# A small Caddy that only serves the built files in ./site. It sits behind the
+# main Caddy in /home/ubuntu/khoaiz, which owns ports 80 and 443 and the HTTPS
+# certificates; the two meet on that project's network, khoaiz_default, the
+# same way the other sites on this server do.
+#
+# Update the files with `make publish-site` (from the repo); this container
+# does not need restarting for that.
+services:
+  site:
+    image: caddy:2-alpine
+    container_name: desksync-site
+    command: caddy file-server --root /srv --listen :80
+    volumes:
+      - ./site:/srv:ro
+    restart: unless-stopped
+    networks: [khoaiz]
+
+networks:
+  khoaiz:
+    name: khoaiz_default
+    external: true
