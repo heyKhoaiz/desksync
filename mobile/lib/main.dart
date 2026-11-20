@@ -8,6 +8,7 @@ import 'data/repository.dart';
 import 'data/session_storage.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/pro_gate.dart';
 import 'share/share.dart';
 
 Future<void> main() async {
@@ -99,7 +100,13 @@ class _DeskSyncAppState extends State<DeskSyncApp> {
       darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF2563EB), brightness: Brightness.dark),
       home: _sb.auth.currentSession == null
           ? LoginScreen(auth: _sb.auth)
-          : HomeScreen(key: ValueKey(user?.id), repo: _repo, email: user?.email ?? '', onSignOut: _sb.auth.signOut),
+          : ProGate(
+              key: ValueKey(user?.id),
+              repo: _repo,
+              email: user?.email ?? '',
+              onSignOut: _sb.auth.signOut,
+              child: HomeScreen(repo: _repo, email: user?.email ?? '', onSignOut: _sb.auth.signOut),
+            ),
     );
   }
 }

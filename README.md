@@ -17,6 +17,8 @@ uninstalling the extension deletes its data.
    Already had DeskSync running before the redesign? Also run `supabase/migrations/001_tags_and_markdown.sql`
    and then `supabase/migrations/002_plain_text_notes.sql` — `create table if not exists` does not add the
    new `tags` and `format` columns, or allow `format = 'plain'`, on tables you already have.
+   Selling Pro? Also run `supabase/migrations/004_plans.sql`: sync then needs Pro (see *Free and Pro*
+   below). For a project of your own, skip it and every account syncs.
 3. **Authentication → Providers → Email**: enabled. (Turn off "Confirm email" while testing if you like.)
 4. **Project Settings → API**: copy the Project URL and the `anon` public key.
 
@@ -36,7 +38,14 @@ After changing extension code, run `make ext` again and click reload on the exte
 Plug in a phone with USB debugging on, then run `make app`. See `mobile/README.md`.
 
 ### Commands
-Run `make` to list them all: `env`, `ext`, `zip`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
+Run `make` to list them all: `env`, `ext`, `zip`, `site`, `store-check`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
+
+### Publishing
+See [docs/STORE_LISTING.md](docs/STORE_LISTING.md): what to paste into the Chrome Web Store, the
+images in `docs/store/`, and the checklist. `make store-check` checks the build against the store's
+rules, and `make site` builds the website (landing page, privacy policy, sync waitlist) into
+`dist/site`, and `make publish-site` copies it to the VPS that serves desksync.org
+(`deploy/vps/`: a small Caddy container behind the server's main Caddy, which handles HTTPS).
 
 ## Use
 | Action | How |
@@ -51,7 +60,9 @@ Run `make` to list them all: `env`, `ext`, `zip`, `icons`, `app`, `apk`, `device
 | Save tab to read later | `Alt+Shift+S`, right-click → *Save page/link to Read Later*, or the popup button |
 | Save selected text as a note | right-click → *Save selection as a note*. The page's address is added at the foot as `Source: …` |
 | New note from any page | `Alt+Shift+K` |
-| Save the clipboard from any page | `Alt+Shift+V` |
+| Save the clipboard from any page | no key by default (Chrome allows an extension four): set one at `chrome://extensions/shortcuts` |
+| Fill a login | `Alt+Shift+L` on a sign-in page, without opening DeskSync. One saved login for the site fills at once; with several, a small chooser on the page shows names and usernames (never passwords). On a two-step sign-in it fills the username, then the password on the next page. A locked vault opens DeskSync to unlock it |
+| Import passwords | Settings → Vault → *Import*: a CSV export from Chrome, Edge, Firefox or another manager. Logins already saved are skipped. Delete the CSV afterwards |
 | Add a note fast | type the line in *Take a note…* at the top of the list and press Enter — the note is made with that line in it and the editor opens on it, caret at the end. Enter on an empty box starts a blank note, as *New note* does. A tag filter that is on is added to the note |
 | Write a note | select it and type. Bold, italic, checkboxes and lists show as they look; underneath, the note is plain text. It saves as you type (the popup closes the moment you click elsewhere); the footer says *Saved*, or *Not saved* with a *Retry* button |
 | Start a note as… | an empty note offers *Note*, *Tasks* and *Email*; or type `/task` or `/email` and press Enter |
@@ -73,9 +84,11 @@ Run `make` to list them all: `env`, `ext`, `zip`, `icons`, `app`, `apk`, `device
 | Add a login | Vault → *New login*. Editing one has an explicit Save, unlike notes: a password saved half-typed is a login you can no longer use |
 | Clipboard history | off by default: in Settings, turn on capture and click *Allow* on each site, or use *Save from clipboard* in the Clipboard tab |
 | Vault | Vault tab → set a master password (cannot be recovered) |
+| Backup codes | Vault → a login → *Edit*, then paste the codes the site gave you (any common format; headings are skipped). The login shows *7 of 10 codes left*; *Copy* on a code copies it and marks it used, with *Undo*. Used codes fold away and can be restored. A new set from the site replaces the old one |
+| Copied passwords | a password, backup code or key you copy is cleared from the clipboard after 30 seconds, unless you copied something else since. Settings → Vault to turn it off |
 | Fill a login | open the site, then Vault → the item saved for that site → *Fill* |
 | Unread count | the icon shows how many Read later links are unread. Settings → *Unread count on the icon* turns it off |
-| Undo a delete | the trash icon on the rail, or Settings → Trash → *Restore* |
+| Undo a delete | the trash icon on the rail, or Settings → Trash → *Restore*. The trash keeps items 30 days (Pro: a year) |
 
 Change shortcuts at `chrome://extensions/shortcuts`.
 
@@ -97,6 +110,25 @@ tests/                    extension tests: offline sync, plain text, secret dete
 extension/lib/supabase.js vendored supabase-js 2.118 (MV3 forbids remote code)
 mobile/                   Flutter Android app (see mobile/README.md)
 ```
+
+## Free and Pro
+Free is every feature on one device. Pro adds sync (other computers, the Android app) and lifts
+three limits. The numbers live in one place, `PLANS` in `extension/lib/client.js`.
+
+| | Free | Pro |
+|---|---|---|
+| Notes, links, logins, backup codes | No limit | No limit |
+| Captured clips kept | Newest 200 (saved by hand and pinned: all) | All |
+| Templates | 10 | No limit |
+| Trash kept for | 30 days | A year |
+| Sync and the Android app | — | ✓ |
+
+Never limited: export, encryption, auto-lock, clearing copied passwords.
+
+The server decides (`plans` table, `supabase/migrations/004_plans.sql`): row level security refuses
+synced rows to an account without Pro, and the phone app shows a Pro screen. The extension keeps
+the last answer so it works offline. A database without that migration has no plans, and every
+account syncs as before. Give an account Pro by hand with the SQL at the end of the migration.
 
 ## Saved on this device first
 Everything is kept in the browser (`extension/lib/store.js`, in `chrome.storage.local`) and

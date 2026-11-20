@@ -12,7 +12,6 @@
 const DESKSYNC_CONFIG = {
   SUPABASE_URL: 'https://demo.supabase.co',
   SUPABASE_ANON_KEY: 'demo',
-  CLIP_HISTORY_LIMIT: 200,
   CLIP_MAX_LENGTH: 20000
 };
 const VAULT_VERIFIER = 'desksync-vault-v1';
@@ -128,6 +127,16 @@ const localStore = {
   async vaultConflict() { return window.__vaultConflict ? VAULT_META : null; },
   async exportAll() { return { app: 'desksync', version: 1, tables: structuredClone(DATA) }; },
   async importAll() { return { counts: { notes: 1 }, skippedVault: 0 }; }
+};
+// Plans, as in lib/client.js. The demo is Pro unless window.__plan says 'free'.
+const PLANS = {
+  free: { name: 'free', sync: false, clips: 200, templates: 10, trashDays: 30 },
+  pro: { name: 'pro', sync: true, clips: Infinity, templates: Infinity, trashDays: 365 }
+};
+const plan = {
+  async name() { return window.__plan === 'free' ? 'free' : 'pro'; },
+  async limits() { return PLANS[await this.name()]; },
+  async refresh() { return this.name(); }
 };
 const sync = {
   onWarn: null,

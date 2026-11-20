@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeskSync store screenshot</title>
+<!-- The Chrome Web Store screenshots, 1280x800. Each is a headline beside the
+     real popup running on sample data (tests/ui/demo.html), so they show the
+     product as it is. Rendered by make-shots.sh: shots.html?n=1 … ?n=5. -->
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
+  body { background: #e7e7e4; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; color: #141414;
+    display: flex; align-items: center; gap: 56px; padding: 0 64px; }
+  .copy { width: 360px; flex: none; }
+  .mark { width: 44px; height: 44px; border-radius: 50%; background: #141414; color: #e7e7e4; display: grid;
+    place-items: center; font-weight: 700; font-size: 19px; margin-bottom: 28px; }
+  h1 { font-size: 38px; line-height: 1.12; letter-spacing: -.02em; margin: 0 0 18px; font-weight: 750; }
+  h1 em { font-style: normal; background: linear-gradient(transparent 62%, #ffd84d 62%); }
+  p { font-size: 17px; line-height: 1.55; color: #4a4a46; margin: 0 0 14px; }
+  .frame { flex: none; border-radius: 18px; overflow: hidden; background: #e7e7e4;
+    box-shadow: 0 30px 70px rgba(0,0,0,.22), 0 0 0 1px rgba(0,0,0,.06); }
+  iframe { display: block; border: 0; }
+  /* Shot 4: a sign-in page with DeskSync's chooser over it. */
+  .site { width: 780px; height: 560px; background: #fff; position: relative; }
+  .bar { height: 40px; background: #f1f1ef; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid #e3e3df; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #d9d9d4; }
+  .url { margin-left: 12px; flex: 1; height: 24px; border-radius: 12px; background: #fff; font-size: 12.5px; color: #5c5c58;
+    display: flex; align-items: center; padding: 0 12px; }
+  .login { width: 320px; margin: 70px auto 0; text-align: center; }
+  .login .logo { font: 600 30px/1 Georgia, serif; margin-bottom: 26px; letter-spacing: .5px; }
+  .login input { display: block; width: 100%; height: 40px; margin: 0 0 10px; padding: 0 12px; border: 1px solid #dbdbdb;
+    border-radius: 6px; background: #fafafa; font-size: 14px; }
+  .login button { width: 100%; height: 36px; border: 0; border-radius: 8px; background: #4a90e2; color: #fff; font-weight: 600; }
+  .key { position: absolute; left: 20px; bottom: 18px; font-size: 13px; color: #70706b; }
+  .key kbd { font: 600 12px ui-monospace, monospace; border: 1px solid #d0d0cb; border-radius: 5px; padding: 2px 6px; background: #fafaf8; color: #141414; }
+  /* Shot 5: an article with the side panel beside it. */
+  .browser { width: 780px; height: 560px; display: flex; background: #fff; }
+  .article { flex: 1; padding: 34px 38px; overflow: hidden; }
+  .article h2 { font: 700 26px/1.2 Georgia, serif; margin: 0 0 14px; }
+  .article p { font: 15px/1.7 Georgia, serif; color: #333; }
+  .article mark { background: #fff1b8; }
+  .panel { width: 360px; flex: none; border-left: 1px solid #e3e3df; }
+</style>
+</head>
+<body>
+<div class="copy" id="copy"></div>
+<div class="frame" id="frame"></div>
+<script src="../../extension/lib/fill.js"></script>
+<script>
+  const demo = '../../tests/ui/demo.html';
+  const SHOTS = {
+    1: { h: 'Find anything in <em>one search</em>',
+         p: ['Notes, saved pages, copied text and logins, all behind one search box.', 'Type a word or a #tag; arrow down, Enter. Your hands never leave the keyboard.'],
+         src: `${demo}?q=launch` },
+    2: { h: 'Notes that <em>look like notes</em>',
+         p: ['Bold, lists and checklists show as they look, with a toolbar always in reach.', 'Tick a task, and the list remembers how far along you are.'],
+         src: `${demo}?open=note:n1` },
+    3: { h: 'Every account, <em>every backup code</em>',
+         p: ['Several logins on one site, told apart by name. Backup codes beside each, with the count of those left.', 'Encrypted with your master password before it is saved. Nobody else can read it.'],
+         src: `${demo}?store=1&vault=open&filter=vault&select=vault:v1` },
+    4: { h: 'Signed out? <em>One shortcut.</em>',
+         p: ['Press Alt+Shift+L on a sign-in page. One account fills at once; several, and you choose.', 'The page sees names, never passwords, until you pick one.'],
+         site: true },
+    5: { h: 'Keep it <em>beside the page</em>',
+         p: ['Open DeskSync in the side panel and it stays while you read, copy and click around.', 'Save a quote with its source, or the whole tab, without losing your place.'],
+         panel: true }
+  };
+  const n = new URLSearchParams(location.search).get('n') || '1';
+  const s = SHOTS[n];
+  document.getElementById('copy').innerHTML = `<div class="mark">D</div><h1>${s.h}</h1>` + s.p.map((t) => `<p>${t}</p>`).join('');
+  const frame = document.getElementById('frame');
+  if (s.src) {
+    frame.innerHTML = `<iframe src="${s.src}" width="780" height="560"></iframe>`;
+  } else if (s.site) {
+    frame.innerHTML = `<div class="site"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="url">instagram.com/accounts/login</span></div>
+      <div class="login"><div class="logo">Sign in</div><input placeholder="Phone number, username or email"><input placeholder="Password" type="password"><button>Log in</button></div>
+      <div class="key">Pressed <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd></div></div>`;
+    // The real chooser from lib/fill.js, placed inside the pretend page.
+    pageChooser([{ id: 'a', title: 'Instagram · Brand A', username: 'brand_a.official' },
+                 { id: 'b', title: 'Instagram · Brand B', username: 'brandb_studio' }], 'demo');
+    const c = document.getElementById('desksync-chooser');
+    const r = frame.getBoundingClientRect();
+    c.style.top = (r.top + 56) + 'px';
+    c.style.right = (1280 - r.right + 16) + 'px';
+  } else if (s.panel) {
+    frame.innerHTML = `<div class="browser"><div class="article"><h2>An Interactive Guide to CSS Grid</h2>
+      <p>Grid is one of the most powerful tools in CSS. <mark>The secret is to think of the grid as a set of tracks</mark>, rows and columns, that the items flow into, rather than a set of boxes you place one by one.</p>
+      <p>Once that clicks, most layouts that once needed hacks become a few lines: a sidebar, a gallery, a page that rearranges itself on a phone.</p>
+      <p>In this guide we build up from a single track to full page layouts, with interactive demos at every step.</p></div>
+      <div class="panel"><iframe src="${demo}?view=panel&open=note:n1" width="360" height="560"></iframe></div></div>`;
+  }
+</script>
+</body>
+</html>

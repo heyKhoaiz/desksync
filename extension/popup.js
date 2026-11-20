@@ -27,13 +27,27 @@ const state = {
   items: [], rows: [], active: 0, vEditing: null, vDraft: null,
   filter: 'all', screen: null, editing: null,
   tagColors: {},
-  tabId: null, tabHost: null, tabOrigin: null, windowId: null
+  tabId: null, tabHost: null, tabOrigin: null, windowId: null,
+  // Free or Pro, and its limits (PLANS in lib/client.js). needsPro: signed in
+  // on a Free account, so nothing syncs.
+  plan: 'free', limits: PLANS.free, planUntil: null, needsPro: false
 };
 
 // ---------- Utils ----------
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), 1800);
+// A short message at the foot of the popup. With an action ({ label, run })
+// it carries a button, Undo say, and stays long enough to reach it.
+function toast(msg, action = null) {
+  const t = $('#toast');
+  t.replaceChildren(msg);
+  if (action) {
+    t.append(el('button', { class: 'toast-act', onclick: async () => {
+      t.classList.add('hidden');
+      try { await action.run(); } catch (e) { console.error(e); }
+    } }, action.label));
+  }
+  t.classList.remove('hidden');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add('hidden'), action ? 6000 : 1800);
 }
 function el(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
@@ -109,6 +123,26 @@ async function writeClipboard(text, html = null) {
 }
 
 async function copy(text, label = 'Copied') { await writeClipboard(text); toast(label); }
+
+// A password, a backup code or a key: copied, then taken off the clipboard
+// 30 seconds later by the service worker, unless something else was copied
+// in between. The worker is told only a hash of what was copied, never the
+// secret itself.
+async function copySecret(text, label = 'Copied') {
+  await writeClipboard(text);
+  const clears = state.clearClipboard !== false && !!chrome.runtime?.sendMessage;
+  if (clears) {
+    try {
+      const hash = await sha256(text);
+      await chrome.runtime.sendMessage({ type: 'clear-clipboard-later', hash });
+    } catch (e) { console.warn('[DeskSync] clipboard clearing not scheduled', e); }
+  }
+  toast(clears ? `${label} · cleared from the clipboard in 30 s` : label);
+}
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 function safe(fn) {
   return async (...a) => { try { await fn(...a); } catch (e) { console.error(e); toast(e.message || 'Something went wrong'); } };
 }
@@ -182,6 +216,8 @@ async function boot() {
   // along with it: see store.adopt.
   if (user) await store.adopt(user.id);
   sync.onWarn = toast;
+  // Signed out is Free; signed in, the last answer stands until sync asks again.
+  await loadPlan(!user);
   // Not awaited: it is usually a no-op, and the list should not wait on a write
   // for a note the last popup already showed.
   replayDraft();
@@ -200,13 +236,14 @@ async function boot() {
     syncNow();
   }
   updateOfflineBar();
+  maybeAskForReview().catch(() => {});
   if (state.startOnToday && !params.get('q') && !params.get('open')) state.filter = 'today';
   draw();
   $('#q').focus();
   await startAction();
 }
 
-// What this window was opened to do: a shortcut (Alt+Shift+K, Alt+Shift+V)
+// What this window was opened to do: a shortcut (new note, save the clipboard, fill)
 // leaves it in session storage, the address bar and the tab fallback put it in
 // the URL.
 async function startAction() {
@@ -225,6 +262,19 @@ async function startAction() {
   }
   if (action === 'note') return startFromCompose();
   if (action === 'clip') return runAction('clip');
+  // Alt+Shift+L with the vault locked: open on the vault, ready to unlock.
+  if (action === 'vault') {
+    await setFilter('vault');
+    if (state.vaultState !== 'open') { state.picked = true; await paneQueue; drawVaultGate({ focus: true }); }
+  }
+}
+
+async function loadPlan(refresh = false) {
+  if (refresh) await plan.refresh().catch(() => {});
+  state.plan = await plan.name();
+  state.limits = PLANS[state.plan];
+  state.planUntil = (await chrome.storage.local.get('plan')).plan?.until || null;
+  state.needsPro = !!state.email && state.plan !== 'pro';
 }
 
 // Sign in or create an account, from Settings. Reloading runs boot() again,
@@ -253,7 +303,8 @@ async function replayDraft() {
 
 // ---------- Offline ----------
 async function updateOfflineBar() {
-  const pending = state.email ? await sync.pending() : 0;
+  // A Free account does not sync, so nothing is waiting to.
+  const pending = state.email && !state.needsPro ? await sync.pending() : 0;
   const bar = $('#offline-bar');
   bar.classList.toggle('hidden', navigator.onLine && !pending);
   bar.textContent = !navigator.onLine
@@ -265,6 +316,9 @@ async function updateOfflineBar() {
 const syncNow = safe(async () => {
   const { synced, pulled, vaultConflict } = await sync.run();
   state.vaultConflict = vaultConflict;
+  const was = state.plan;
+  await loadPlan();
+  if (state.plan !== was && state.screen === 'settings') drawSettings();
   await updateOfflineBar();
   if (!synced && !pulled) return;
   loadNotes(); loadLater(); loadClips();
@@ -295,7 +349,7 @@ function subscribeRealtime(uid) {
 const loadNotes = safe(async () => { state.notes = await db.list('notes'); draw(); });
 const loadLater = safe(async () => { state.later = await db.list('read_later', { order: 'created_at' }); draw(); });
 const loadClips = safe(async () => {
-  state.clips = await db.list('clips', { order: 'created_at', limit: DESKSYNC_CONFIG.CLIP_HISTORY_LIMIT });
+  state.clips = await db.list('clips', { order: 'created_at' });
   draw();
 });
 
@@ -339,7 +393,10 @@ function buildItems() {
   for (const v of state.vault) {
     items.push({
       kind: 'vault', id: v.id, row: v, when: v.updated_at || null,
-      title: v.title || v.url || 'Untitled', sub: v.username || hostOf(v.url), text: v.url || '', tags: v.tags || []
+      title: v.title || v.url || 'Untitled',
+      // How many backup codes are left, where you would look for a login.
+      sub: [v.username || hostOf(v.url), backupCodes.summary(v.codes).text].filter(Boolean).join(' · '),
+      text: v.url || '', tags: v.tags || []
     });
   }
 
@@ -428,8 +485,14 @@ function matches(raw) {
   const pool = state.items.filter((i) => inFilter(i) && tags.every((t) => i.tags.includes(t)));
   // Today mixes kinds, so it is grouped by kind like search results are. The
   // sort is stable: pinned first and newest first still hold inside each group.
-  if (!text) return state.filter === 'today'
-    ? pool.sort((a, b) => TYPE_KEYS.indexOf(a.kind) - TYPE_KEYS.indexOf(b.kind)) : pool;
+  if (!text && state.filter === 'today') return pool.sort((a, b) => TYPE_KEYS.indexOf(a.kind) - TYPE_KEYS.indexOf(b.kind));
+  // In the vault, the logins for the page you are on come first: that is
+  // almost always the one you opened DeskSync for.
+  if (!text && state.filter === 'vault' && state.tabHost) {
+    const here = (i) => (hostMatches(i.row?.url, state.tabHost) ? 0 : 1);
+    return pool.sort((a, b) => here(a) - here(b));
+  }
+  if (!text) return pool;
   return pool
     .map((i) => [score(i, text), i])
     .filter(([n]) => n > 0)
@@ -506,6 +569,7 @@ function draw() {
       : text ? TYPES[item.kind].label
       // Pinned things are kept at the top already; now the list says why.
       : state.filter === 'all' ? (item.pinned ? 'Pinned' : 'Recent')
+      : state.filter === 'vault' && state.tabHost && hostMatches(item.row?.url, state.tabHost) ? `On ${state.tabHost}`
       : TYPES[item.kind].label;
     if (group && group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
     list.append(rowFor(item, idx, text));
@@ -583,7 +647,7 @@ const EMPTY = {
   today: 'Nothing for today. Pinned items, unread links, and notes and clips from the last day show up here.',
   note: 'No notes yet. Type in “Take a note…” above, or press Alt+Shift+K on any page.',
   link: 'Nothing to read later. Alt+Shift+S saves the tab you are on; right-click a link to save that instead.',
-  clip: 'No clips yet. Alt+Shift+V saves what you copied. To keep everything you copy on a site, turn on capture in Settings.',
+  clip: 'No clips yet. Save the clipboard above to keep what you copied. To keep everything you copy on a site, turn on capture in Settings.',
   vault: 'No logins saved yet.'
 };
 
@@ -751,7 +815,7 @@ function rowActions(item) {
   if (item.kind === 'vault') {
     kids.push(el('button', {
       title: 'Copy password', 'aria-label': 'Copy password',
-      'data-row-act': 'copy', onclick: stop(() => copy(item.row.password || '', 'Password copied'))
+      'data-row-act': 'copy', onclick: stop(() => copySecret(item.row.password || '', 'Password copied'))
     }, icon('key')));
   }
 
@@ -956,11 +1020,77 @@ function detailBody(item) {
   return [
     el('div', { class: 'field' }, el('span', { class: 'k' }, 'Site'), el('span', { class: 'v' }, item.row.url || '—')),
     el('div', { class: 'field' }, el('span', { class: 'k' }, 'Username'), el('span', { class: 'v' }, item.row.username || '—')),
+    // Show sits beside the password it shows, where people look for it, not
+    // in the bottom bar, which had more buttons than room.
     el('div', { class: 'field' }, el('span', { class: 'k' }, 'Password'),
-      el('span', { class: 'v', id: 'vpw' }, '•'.repeat(Math.min(16, (item.row.password || '').length) || 8))),
-    item.row.notes ? el('p', { class: 'wrap', style: 'margin-top:12px' }, item.row.notes) : null
+      el('span', { class: 'v-pw' },
+        el('span', { class: 'v', id: 'vpw' }, '•'.repeat(Math.min(16, (item.row.password || '').length) || 8)),
+        el('button', { class: 'pw-show', id: 'vpw-show', title: 'Show password', 'aria-label': 'Show password', 'aria-pressed': 'false',
+          onclick: () => revealPassword(item) }, icon('eye')))),
+    item.row.notes ? el('p', { class: 'wrap', style: 'margin-top:12px' }, item.row.notes) : null,
+    codesSection(item)
   ].filter(Boolean);
 }
+
+// ---------- Backup codes on a login ----------
+// The codes left, hidden until shown, each with Copy. Copying a code marks it
+// used (a code works once), with Undo for a mistaken copy. Used codes are kept,
+// folded away, so you can see which are gone and restore one.
+function codesSection(item) {
+  const list = item.row.codes || [];
+  if (!list.length) return null;
+  const sum = backupCodes.summary(list);
+  const shown = !!state.showCodes;
+  const mask = (c) => c.replace(/[A-Za-z0-9]/g, '•');
+  const unused = list.filter((x) => !x.used), used = list.filter((x) => x.used);
+  return el('section', { class: 'codes', 'aria-label': 'Backup codes' },
+    el('div', { class: 'codes-head' },
+      el('b', {}, 'Backup codes'),
+      el('span', { class: 'n' + (sum.low ? ' low' : ''), id: 'codes-left' }, sum.text),
+      el('button', { class: 'codes-show', 'aria-pressed': String(shown),
+        onclick: () => { state.showCodes = !shown; drawDetail(item); } }, shown ? 'Hide' : 'Show')),
+    sum.low ? el('p', { class: 'codes-warn', role: 'status' },
+      unused.length ? `Only ${unused.length} left. Make a new set on the site before they run out, then paste it in with Edit.`
+                    : 'All used. Make a new set on the site, then paste it in with Edit.') : null,
+    el('ul', { class: 'codes-list' }, ...unused.map((x) => el('li', {},
+      el('span', { class: 'code' }, shown ? x.c : mask(x.c)),
+      el('button', { class: 'code-copy', 'data-code': x.c, title: 'Copy, and mark used',
+        onclick: () => useCode(item.id, x.c) }, icon('copy'), 'Copy')))),
+    used.length ? el('details', { class: 'codes-used' },
+      el('summary', {}, `Used (${used.length})`),
+      el('ul', { class: 'codes-list' }, ...used.map((x) => el('li', { class: 'used' },
+        el('span', { class: 'code' }, shown ? x.c : mask(x.c)),
+        el('span', { class: 'when' }, ago(x.used)),
+        el('button', { class: 'code-restore', title: 'Not used after all: put it back',
+          onclick: () => markCode(item.id, x.c, false, 'Code put back') }, 'Restore'))))) : null);
+}
+
+// The login's encrypted payload, written again after a change to it.
+async function saveVaultRow(row) {
+  const { id, updated_at, ...payload } = row;
+  const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(payload));
+  await db.update('vault_items', id, { iv, ciphertext });
+}
+
+const markCode = safe(async (id, code, used, message) => {
+  const row = state.vault.find((v) => v.id === id);
+  if (!row || !state.vaultKey) return;
+  row.codes = backupCodes.setUsed(row.codes || [], code, used);
+  await saveVaultRow(row);
+  await loadVault();
+  if (message) toast(message);
+});
+
+const useCode = safe(async (id, code) => {
+  const row = state.vault.find((v) => v.id === id);
+  if (!row) return;
+  await copySecret(code, 'Code copied');
+  row.codes = backupCodes.setUsed(row.codes || [], code, true);
+  await saveVaultRow(row);
+  await loadVault();
+  const left = backupCodes.summary(state.vault.find((v) => v.id === id)?.codes).text;
+  toast(`Code copied and marked used · ${left}`, { label: 'Undo', run: () => markCode(id, code, false, 'Code put back') });
+});
 
 function detailFoot(item) {
   const del = el('button', { class: 'ghost', title: 'Delete', 'aria-label': 'Delete', onclick: safe(() => remove(item)) }, icon('trash'));
@@ -984,7 +1114,7 @@ function detailFoot(item) {
       : null;
     if (item.secret) {
       return [
-        el('button', { class: 'primary', onclick: safe(() => copy(item.row.content)) }, icon('copy'), 'Copy'),
+        el('button', { class: 'primary', onclick: safe(() => copySecret(item.row.content)) }, icon('copy'), 'Copy'),
         insert,
         el('button', { class: 'ghost', id: 'clip-show', onclick: () => revealClip(item) }, icon('eye'), 'Show'),
         el('button', { class: 'ghost', id: 'clip-vault', title: 'Save it in the vault, encrypted, and remove the clip',
@@ -1004,10 +1134,14 @@ function detailFoot(item) {
   const canFill = hostMatches(item.row.url, state.tabHost);
   return [
     canFill
-      ? el('button', { class: 'primary', onclick: () => fillItem(item.row) }, icon('fill'), 'Fill on this page')
-      : el('button', { class: 'primary', onclick: safe(() => copy(item.row.password || '', 'Password copied')) }, icon('key'), 'Copy password'),
-    el('button', { class: 'ghost', onclick: safe(() => copy(item.row.username || '', 'Username copied')) }, icon('user'), 'Copy user'),
-    el('button', { class: 'ghost', onclick: () => revealPassword(item) }, icon('eye'), 'Show'),
+      ? el('button', { class: 'primary', title: 'Fill this login into the page you are on (Enter)',
+          onclick: () => fillItem(item.row) }, icon('fill'), 'Fill')
+      // Short labels with a copy icon, the full words in title and aria-label:
+      // beside the list the bar had no room for "Copy password · Copy user".
+      : el('button', { class: 'primary', title: 'Copy password', 'aria-label': 'Copy password',
+          onclick: safe(() => copySecret(item.row.password || '', 'Password copied')) }, icon('copy'), 'Password'),
+    el('button', { class: 'ghost', title: 'Copy username', 'aria-label': 'Copy username',
+      onclick: safe(() => copy(item.row.username || '', 'Username copied')) }, icon('copy'), 'Username'),
     el('button', { class: 'ghost', onclick: () => openVaultEditor(item) }, icon('edit'), 'Edit'),
     el('span', { class: 'spacer' }),
     el('button', { class: 'ghost', title: 'Lock the vault', 'aria-label': 'Lock the vault', onclick: safe(lockVault) }, icon('lock')),
@@ -1021,6 +1155,12 @@ function revealPassword(item) {
   const shown = e.dataset.shown === '1';
   e.dataset.shown = shown ? '' : '1';
   e.textContent = shown ? '•'.repeat(Math.min(16, (item.row.password || '').length) || 8) : (item.row.password || '');
+  const b = $('#vpw-show');
+  if (b) {
+    b.setAttribute('aria-pressed', String(!shown));
+    b.title = shown ? 'Show password' : 'Hide password';
+    b.setAttribute('aria-label', b.title);
+  }
 }
 
 function revealClip(item) {
@@ -1063,7 +1203,10 @@ function linkNote(item) {
     db.update('read_later', item.id, { note: box.value }).catch((e) => { console.error(e); toast('Could not save the note'); });
   };
   linkNote.flush = save;
-  box.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(save, 300); });
+  // Saved on every keystroke, not after a pause: a popup closes the moment you
+  // click the page, and the last words typed inside a pause were lost. The
+  // write is local and the store queues them in order, so this costs nothing.
+  box.addEventListener('input', save);
   box.addEventListener('blur', save);
   box.addEventListener('keydown', (e) => {
     e.stopPropagation();
@@ -1395,6 +1538,10 @@ function openTagPicker(item, box, add) {
     done = true;
     pop.remove();
     const r = tagRules.check(name, item.tags);
+    if (r.ok && r.name === TEMPLATE_TAG && item.kind === 'note' && templatesFull(item.id)) {
+      refreshAfterTags(item);
+      return;
+    }
     if (r.ok) {
       await saveTags(item, [...item.tags, r.name]);
       if (r.reason) toast(`#${r.name}: ${r.reason.toLowerCase()}`);
@@ -1840,9 +1987,19 @@ function startFromTemplate(n) {
   area.scrollTop = 0;
 }
 
+// Free keeps 10 templates, Pro any number (PLANS in lib/client.js). Templates
+// over the limit, from a Pro that lapsed, stay: only new ones are refused.
+function templatesFull(exceptId) {
+  const n = state.notes.filter((x) => x.id !== exceptId && (x.tags || []).includes(TEMPLATE_TAG)).length;
+  if (n < state.limits.templates) return false;
+  toast(`Free keeps ${state.limits.templates} templates. Pro has no limit — see Settings → Plan`);
+  return true;
+}
+
 function toggleTemplate() {
   if (!state.draft) return;
   const on = state.draft.tags.includes(TEMPLATE_TAG);
+  if (!on && templatesFull(state.editing?.id)) return;
   state.draft.tags = on ? state.draft.tags.filter((t) => t !== TEMPLATE_TAG) : [...state.draft.tags, TEMPLATE_TAG];
   if (state.editing) state.editing.tags = state.draft.tags;
   queueSave();
@@ -1913,24 +2070,26 @@ function startAs(kind) {
 // middle of bold closes it before the break and opens it again after, so both
 // halves stay bold instead of showing a stray "**".
 function splitLine(area, shift) {
-  let a = area.selectionStart, b = area.selectionEnd;
-  const v0 = area.value;
-  if (a !== b) {
-    // Typing over a selection: the selection goes first.
-    const r = richEditor.removeRange(v0, a, b);
-    area.value = r.v;
-    a = b = r.at;
-  }
-  const v = area.value;
-  const ln = lineAt(area, a);
-  const p = tasks.parse(ln.text);
-  const off = a - ln.start;
+  const a0 = area.selectionStart, b0 = area.selectionEnd;
+  const selected = a0 !== b0;
+  // Planned on the text as it will be once a selection is gone, then done as
+  // one edit, so one Ctrl+Z undoes the whole Enter. (Removing the selection
+  // first and then adding the break took two.)
+  const r = selected ? richEditor.removeRange(area.value, a0, b0) : { v: area.value, at: a0 };
+  const v = r.v, a = r.at;
+  const start = a > 0 ? v.lastIndexOf('\n', a - 1) + 1 : 0;
+  let end = v.indexOf('\n', a);
+  if (end < 0) end = v.length;
+  const line = v.slice(start, end);
+  const p = tasks.parse(line);
+  const off = a - start;
 
-  if (!shift && p && off >= p.prefix && !p.rest.trim()) {
-    const r = tasks.onEnter(ln.text);
-    return replaceRange(area, ln.start, ln.end, r.line, ln.start + r.line.length);
+  // Enter on an empty list item ends the list.
+  if (!selected && !shift && p && off >= p.prefix && !p.rest.trim()) {
+    const e = tasks.onEnter(line);
+    return replaceRange(area, start, end, e.line, start + e.line.length);
   }
-  const cont = !shift && p && off >= p.prefix ? tasks.onEnter(ln.text).insert.slice(1) : '';
+  const cont = !shift && p && off >= p.prefix ? tasks.onEnter(line).insert.slice(1) : '';
 
   // Runs of bold or italic the caret is inside. At a run's edge the break
   // goes outside it instead.
@@ -1938,9 +2097,11 @@ function splitLine(area, shift) {
   const runs = [];
   for (let k = 0; k + 2 < marks.length; k += 3) runs.push(marks.slice(k, k + 3));
   let at = a;
-  for (const [o, c, cl] of runs) {
-    if (at === c.to && at === cl.from) at = cl.to;
-    else if (at === c.from && at === o.to) at = o.from;
+  if (!selected) {
+    for (const [o, c, cl] of runs) {
+      if (at === c.to && at === cl.from) at = cl.to;
+      else if (at === c.from && at === o.to) at = o.from;
+    }
   }
   // Closing bold before the break and opening it after is done by the
   // editor for any line break going into bold (Enter, or a pasted line), so
@@ -1948,7 +2109,9 @@ function splitLine(area, shift) {
   const insert = '\n' + cont;
   const open = runs.filter(([, c]) => at > c.from && at < c.to);
   const reopenLen = open.reduce((n, [o]) => n + (o.to - o.from), 0);
-  replaceRange(area, at, at, insert, at + insert.length + reopenLen * 2);
+  const caret = at + insert.length + reopenLen * 2;
+  if (selected) return replaceRange(area, a0, b0, insert, caret);
+  replaceRange(area, at, at, insert, caret);
 }
 
 // ---- the toolbar ----
@@ -2469,7 +2632,9 @@ function openVaultEditor(item, prefill = null) {
   state.vEditing = item || { kind: 'vault', id: null, row, tags: [], isNew: true, fromClip: prefill?.fromClip || null };
   state.vDraft = {
     title: row.title || '', url: row.url || '', username: row.username || '',
-    password: row.password || '', notes: row.notes || '', tags: [...(row.tags || [])]
+    password: row.password || '', notes: row.notes || '', tags: [...(row.tags || [])],
+    // Codes already saved stay as they are; a pasted block is read on Save.
+    codes: (row.codes || []).map((x) => ({ ...x })), pasted: '', replaceCodes: true
   };
   // A new login is almost always for the page you are on, so start it there.
   if (!item && state.tabHost) {
@@ -2524,8 +2689,13 @@ function drawVaultEditor() {
   const save = safe(async () => {
     if (!state.vaultKey) return drawVaultGate();
     const item = state.vEditing;
-    const payload = { title: d.title.trim(), url: d.url.trim(), username: d.username,
-      password: d.password, notes: d.notes, tags: d.tags };
+    // Everything the login already holds, then the form on top: a field the
+    // form does not show (its backup codes, say) must not be lost by an edit.
+    const { id: _id, updated_at: _u, ...kept } = item.row || {};
+    const payload = { ...kept, title: d.title.trim(), url: d.url.trim(), username: d.username,
+      password: d.password, notes: d.notes, tags: d.tags,
+      codes: backupCodes.merge(d.codes, d.pasted, { replace: d.replaceCodes && d.codes.length > 0 }) };
+    if (!payload.codes.length) delete payload.codes;
     const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(payload));
     if (item.id) await db.update('vault_items', item.id, { iv, ciphertext });
     else await db.insert('vault_items', { iv, ciphertext });
@@ -2547,7 +2717,7 @@ function drawVaultEditor() {
         state.vEditing.isNew ? 'Vault · new login' : 'Vault · editing'),
       (() => {
         const t = el('input', { class: 't-in', id: 'v-title', value: d.title,
-          placeholder: 'Name, e.g. GitHub', 'aria-label': 'Name' });
+          placeholder: 'Name, e.g. Brand A Instagram', 'aria-label': 'Name' });
         t.addEventListener('input', () => { d.title = t.value; });
         t.addEventListener('keydown', (e) => {
           e.stopPropagation();
@@ -2567,7 +2737,8 @@ function drawVaultEditor() {
           el('button', { title: 'Generate', 'aria-label': 'Generate a password',
             onclick: () => { pw.value = vaultCrypto.generatePassword(); d.password = pw.value; pw.type = 'text'; } },
             icon('dice')))),
-      field('v-notes', 'Notes', d.notes, { key: 'notes', multiline: true })),
+      field('v-notes', 'Notes', d.notes, { key: 'notes', multiline: true }),
+      codesField(d)),
     el('footer', { class: 'd-foot' },
       el('button', { class: 'primary', onclick: save }, icon('check'), 'Save'),
       el('button', { class: 'ghost', onclick: closeVaultEditor }, 'Cancel'),
@@ -2581,6 +2752,52 @@ function drawVaultEditor() {
               await loadVault();
             }) }, icon('trash')))
   );
+}
+
+// Pasting the backup codes a site gives you. What was read is counted as you
+// paste, so a block the reader cannot make sense of is noticed before Save.
+function codesField(d) {
+  const box = el('textarea', { id: 'v-codes', rows: '3', spellcheck: 'false', autocomplete: 'off',
+    placeholder: d.codes.length ? 'Paste a new set to replace these…' : 'Paste the backup codes the site gave you…' });
+  const found = el('span', { class: 'codes-found', id: 'v-codes-found', 'aria-live': 'polite' });
+  const replace = el('input', { type: 'checkbox', id: 'v-codes-replace', checked: d.replaceCodes || null });
+  replace.addEventListener('change', () => { d.replaceCodes = replace.checked; });
+  const update = () => {
+    d.pasted = box.value;
+    const n = backupCodes.parse(box.value).length;
+    found.textContent = box.value.trim() ? (n ? `${n} code${n === 1 ? '' : 's'} found` : 'No codes found in that') : '';
+  };
+  box.addEventListener('input', update);
+  box.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); closeVaultEditor(); } });
+  const have = backupCodes.summary(d.codes).text;
+  return el('div', { class: 'v-codes' },
+    el('label', { for: 'v-codes' }, 'Backup codes', have ? el('span', { class: 'have' }, ` · ${have}`) : null),
+    box,
+    el('div', { class: 'v-codes-foot' }, found,
+      d.codes.length ? el('label', { class: 'inline', for: 'v-codes-replace' }, replace,
+        ' These replace the old codes (a new set from the site stops the old ones working)') : null));
+}
+
+// Logins from a password export, encrypted one by one into the vault. A login
+// already here (same site, same username) is left as it is.
+async function importPasswords(csv) {
+  if (!state.vaultKey) return toast('Unlock the vault first');
+  const { logins, skipped, error } = sites.loginsFromCsv(csv);
+  if (error) return toast(error);
+  let added = 0, same = 0;
+  for (const l of logins) {
+    if (state.vault.some((v) => sites.sameLogin(v, l))) { same++; continue; }
+    const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(l));
+    await db.insert('vault_items', { iv, ciphertext });
+    state.vault.push({ ...l, id: 'pending' });
+    added++;
+  }
+  await loadVault();
+  const bits = [`${plural(added, 'login')} imported`];
+  if (same) bits.push(`${same} already here`);
+  if (skipped) bits.push(`${skipped} empty skipped`);
+  toast(bits.join(' · '));
+  if (state.screen === 'settings') drawSettings();
 }
 
 // ---------- Vault ----------
@@ -2604,6 +2821,7 @@ const loadVault = safe(async () => {
     } catch { console.warn('Could not decrypt vault item', r.id); }
   }
   state.vault.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  await applyPendingTagOps();
   draw();
 });
 
@@ -2680,41 +2898,14 @@ function drawVaultGate({ focus = false } = {}) {
 }
 
 // Does a saved item belong to the site in the front tab?
-function hostMatches(itemUrl, tabHost) {
-  if (!tabHost || !itemUrl) return false;
-  let host;
-  try { host = new URL(/^https?:\/\//i.test(itemUrl) ? itemUrl : 'https://' + itemUrl).hostname.replace(/^www\./, ''); }
-  catch { return false; }
-  // The page may be the login's site or a subdomain of it (a login for
-  // github.com fills on gist.github.com). Not the reverse: a login saved for
-  // a.example.com is not offered on example.com, or on b.example.com.
-  return host === tabHost || tabHost.endsWith('.' + host);
-}
+// Shared with the service worker's Alt+Shift+L: see lib/sites.js.
+const hostMatches = (itemUrl, tabHost) => sites.matches(itemUrl, tabHost);
 
 // ---------- Autofill ----------
 // Runs in the page, in the extension's isolated world: it can reach the DOM but
 // shares nothing else with the page. Only ever injected by the click handler below,
 // into the tab in front, for an item saved for that site.
-function fillForm(username, password) {
-  const shown = (el) => el.getClientRects().length > 0 && !el.disabled && !el.readOnly;
-  const setValue = (el, value) => {
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-    if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-  const inputs = [...document.querySelectorAll('input')].filter(shown);
-  const pw = inputs.find((i) => i.type === 'password');
-  if (!pw) return { filled: 0, foundPassword: false };
-  const before = inputs.slice(0, inputs.indexOf(pw)).filter((i) => /^(text|email|tel)$/.test(i.type));
-  const named = before.filter((i) =>
-    /user|email|login|account/i.test(`${i.name} ${i.id} ${i.autocomplete} ${i.getAttribute('aria-label') || ''}`));
-  const user = named[named.length - 1] || before[before.length - 1];
-  let filled = 0;
-  if (user && username) { setValue(user, username); filled++; }
-  if (password) { setValue(pw, password); filled++; pw.focus(); }
-  return { filled, foundPassword: true };
-}
+// fillForm itself is in lib/fill.js, shared with the service worker's Alt+Shift+L.
 
 function fillItem(v) {
   const { tabId, tabOrigin } = state;
@@ -2731,6 +2922,11 @@ function fillItem(v) {
       target: { tabId }, func: fillForm, args: [v.username || '', v.password || '']
     });
     const r = res?.result;
+    if (r?.usernameOnly) {
+      toast('Username filled. Continue to the password page, then fill again');
+      if (VIEW === 'popup') setTimeout(() => window.close(), 1200);
+      return;
+    }
     if (!r?.foundPassword) return toast('No login form found on this page');
     toast(r.filled > 1 ? 'Filled username and password' : 'Filled password');
     if (VIEW === 'popup') setTimeout(() => window.close(), 700);
@@ -2812,7 +3008,7 @@ function drawTrash() {
   pane.append(
     el('header', { class: 'sc-head' },
       backButton(), el('h2', {}, 'Trash'),
-      el('span', { class: 'n' }, state.trash.length ? `${plural(state.trash.length, 'item')} · removed after 30 days` : ''),
+      el('span', { class: 'n' }, state.trash.length ? `${plural(state.trash.length, 'item')} · removed after ${trashKept()}` : ''),
       el('span', { class: 'right' }, empty)),
     el('div', { class: 'sc-body' }, ...(state.trash.length
       ? state.trash.map((r) => {
@@ -2828,9 +3024,12 @@ function drawTrash() {
             el('button', { onclick: safe(async () => { await db.purge(r._table, r.id); toast('Deleted forever'); loadTrash(); }) },
               'Delete forever'));
         })
-      : [el('div', { class: 'sc-empty' }, 'Trash is empty. Anything you delete waits here for 30 days.')]))
+      : [el('div', { class: 'sc-empty' }, `Trash is empty. Anything you delete waits here for ${trashKept()}.`)]))
   );
 }
+
+// 30 days on Free, a year on Pro: background.js sweepTrash deletes after that.
+const trashKept = () => (state.limits.trashDays >= 365 ? 'a year' : `${state.limits.trashDays} days`);
 
 // ---------- Settings ----------
 const SWATCHES = ['', '#3d7bfa', '#19bf7a', '#ffd84d', '#ff8a3d', '#e0557b', '#8b5cf6'];
@@ -2887,7 +3086,9 @@ function drawSettings() {
 
   const accountRows = state.email
     ? [
-        row(state.email, 'Synced across your Chrome profiles and your phone. Signing out keeps everything on this device.',
+        row(state.email, state.needsPro
+            ? 'Signed in on the Free plan: everything stays on this device. Sync is part of Pro. Signing out keeps everything here.'
+            : 'Synced across your Chrome profiles and your phone. Signing out keeps everything on this device.',
           el('button', { class: 'act', onclick: safe(async () => {
             await vaultCrypto.lock();
             await sb.auth.signOut();
@@ -2942,6 +3143,9 @@ function drawSettings() {
   pane.replaceChildren(
     el('header', { class: 'sc-head' }, backButton(), el('h2', {}, 'Settings')),
     el('div', { class: 'sc-body' },
+      el('div', { class: 'sc-sec' }, 'Plan'),
+      ...planRows(row),
+
       el('div', { class: 'sc-sec' }, state.email ? 'Account' : 'Sync'),
       ...accountRows,
 
@@ -2987,6 +3191,19 @@ function drawSettings() {
             }
           })
         }, state.vaultState === 'open' ? 'Lock now' : state.vaultState === 'setup' ? 'Set up' : 'Unlock')),
+      row('Import passwords', 'A CSV file exported from Chrome (Settings → Passwords → Export), Edge, Firefox or another password manager. Logins already here are skipped. Delete the file afterwards: it is not encrypted.',
+        (() => {
+          const file = el('input', { type: 'file', accept: '.csv,text/csv', class: 'hidden', 'aria-label': 'Choose a password export (CSV)' });
+          file.addEventListener('change', safe(async () => {
+            const f = file.files?.[0];
+            file.value = '';
+            if (f) await importPasswords(await f.text());
+          }));
+          return el('span', {}, el('button', { class: 'act', id: 'import-passwords',
+            onclick: () => (state.vaultState === 'open' ? file.click() : toast('Unlock the vault first')) }, 'Import'), file);
+        })()),
+      row('Clear copied passwords', 'A password, backup code or key you copy is taken off the clipboard after 30 seconds, unless you copied something else since.',
+        toggle('clearClipboard', 'Clear copied passwords')),
       row('Autofill',
         'In the vault, an item saved for the site you are on has a Fill button. Filling asks for access to that site the first time, and never captures your clipboard there.',
         null),
@@ -3014,9 +3231,10 @@ function drawSettings() {
 
       el('div', { class: 'sc-sec' }, 'Keyboard'),
       row('Open DeskSync', null, el('span', { class: 'val' }, shortcut('_execute_action', 'Alt+Shift+D') || 'Not set')),
+      row('Fill a login', 'On a sign-in page; with several accounts for the site, choose one', el('span', { class: 'val' }, shortcut('fill-login', 'Alt+Shift+L') || 'Not set')),
       row('Save this tab', null, el('span', { class: 'val' }, shortcut('save-tab', 'Alt+Shift+S') || 'Not set')),
       row('New note', 'From any page', el('span', { class: 'val' }, shortcut('new-note', 'Alt+Shift+K') || 'Not set')),
-      row('Save the clipboard', 'From any page', el('span', { class: 'val' }, shortcut('save-clipboard', 'Alt+Shift+V') || 'Not set')),
+      row('Save the clipboard', 'From any page', el('span', { class: 'val' }, shortcut('save-clipboard', '') || 'Not set: choose one below')),
       row('Search from the address bar', 'Type ds, a space, then what you are looking for', el('span', { class: 'val' }, 'ds ␣')),
       row('Insert into the page', 'Click into a text box, open DeskSync, pick a note or clip, Shift+Enter', el('span', { class: 'val' }, '⇧⏎')),
       row('Change these', 'chrome://extensions/shortcuts', el('button', {
@@ -3024,14 +3242,84 @@ function drawSettings() {
       }, 'Open')),
 
       el('div', { class: 'sc-sec' }, 'Data'),
-      row('Trash', 'Deleted items wait here until you empty it.',
+      row('Trash', `Deleted items wait here for ${trashKept()}, or until you empty it.`,
         el('button', { class: 'act', onclick: () => setScreen('trash') }, plural(state.trash.length, 'item'))),
       row('Export everything', 'One JSON file. Vault items stay encrypted in it.',
         el('button', { class: 'act', onclick: safe(exportAll) }, 'Export')),
       row('Import', 'Merges a DeskSync export into what is here. Newer copies win.',
-        el('span', {}, el('button', { class: 'act', onclick: () => importInput.click() }, 'Import'), importInput))
+        el('span', {}, el('button', { class: 'act', onclick: () => importInput.click() }, 'Import'), importInput)),
+
+      el('div', { class: 'sc-sec' }, 'Help'),
+      configured('SUPPORT_EMAIL')
+        ? row('Send feedback', 'Something wrong, or something you wish it did. Every message is read.',
+            el('button', { class: 'act', id: 'send-feedback', onclick: () => chrome.tabs.create({ url: feedbackUrl() }) }, 'Write'))
+        : null,
+      row('Rate DeskSync', 'A review in the Chrome Web Store helps other people find it.',
+        el('button', { class: 'act', id: 'rate-store', onclick: () => openStorePage() }, 'Rate')),
+      configured('PRIVACY_URL')
+        ? row('Privacy policy', 'What DeskSync keeps, where, and what it never does.',
+            el('button', { class: 'act', onclick: () => chrome.tabs.create({ url: DESKSYNC_CONFIG.PRIVACY_URL }) }, 'Read'))
+        : null,
+      row('Version', null, el('span', { class: 'val' }, chrome.runtime?.getManifest?.().version || ''))
     )
   );
+}
+
+// ---------- Plan ----------
+// What this plan includes, in Settings. Free is the whole app on one device;
+// Pro adds sync and lifts the three limits (PLANS in lib/client.js).
+function planRows(row) {
+  const pro = state.plan === 'pro';
+  const until = state.planUntil ? ` until ${new Date(state.planUntil).toLocaleDateString()}` : '';
+  const about = configured('PRO_URL')
+    ? el('button', { class: 'act', id: 'about-pro', onclick: () => chrome.tabs.create({ url: DESKSYNC_CONFIG.PRO_URL }) }, pro ? 'Details' : 'About Pro')
+    : null;
+  const n = (v) => (Number.isFinite(v) ? String(v) : 'No limit');
+  const templates = state.notes.filter((x) => (x.tags || []).includes(TEMPLATE_TAG)).length;
+  return [
+    row(pro ? `Pro${until}` : 'Free',
+      pro ? 'Sync across your computers and your phone, with no limits.'
+        : 'Every feature on this device. Pro adds sync across your computers, the Android app, and no limits below.',
+      about),
+    row('Captured clips kept', pro ? 'Every clip you copy is kept.'
+      : `The newest ${state.limits.clips} captured clips. Clips you save yourself and pinned clips are always kept.`,
+      el('span', { class: 'val' }, n(state.limits.clips))),
+    row('Templates', `${plural(templates, 'template')} saved.`,
+      el('span', { class: 'val' }, n(state.limits.templates))),
+    row('Trash kept for', 'Then deleted for good.', el('span', { class: 'val' }, trashKept())),
+    row('Never limited', 'Notes, links, logins, backup codes, export, encryption and auto-lock.', null)
+  ];
+}
+
+// ---------- Help: feedback and reviews ----------
+// A config value counts once the build has filled it in (see config.js).
+const configured = (k) => !!DESKSYNC_CONFIG[k] && !String(DESKSYNC_CONFIG[k]).startsWith('YOUR-');
+
+function feedbackUrl() {
+  const v = chrome.runtime?.getManifest?.().version || '';
+  return `mailto:${DESKSYNC_CONFIG.SUPPORT_EMAIL}?subject=${encodeURIComponent(`DeskSync ${v} feedback`)}` +
+    `&body=${encodeURIComponent('What happened, or what you wish it did:\n\n')}`;
+}
+
+// The extension's own page in the Chrome Web Store, reviews tab.
+function openStorePage() {
+  chrome.tabs.create({ url: `https://chromewebstore.google.com/detail/${chrome.runtime?.id || ''}/reviews` });
+}
+
+// Asking for a review, once. Only after a week of use and with a few things
+// saved, so it reaches people who have found it useful, and never again after
+// either button: a prompt that keeps coming back is the opposite of polite.
+async function maybeAskForReview() {
+  const { installedAt, reviewAsked } = await chrome.storage.local.get(['installedAt', 'reviewAsked']);
+  const strip = $('#review-ask');
+  if (!strip || reviewAsked || !installedAt || Date.now() - installedAt < 7 * DAY_MS) return;
+  if (state.notes.length + state.later.length + state.clips.length < 5) return;
+  const done = async () => { strip.classList.add('hidden'); await chrome.storage.local.set({ reviewAsked: Date.now() }); };
+  strip.replaceChildren(
+    el('span', {}, 'Finding DeskSync useful? A review helps others find it.'),
+    el('button', { class: 'ra-yes', onclick: async () => { await done(); openStorePage(); } }, 'Rate it'),
+    el('button', { class: 'ra-no', onclick: done }, 'Not now'));
+  strip.classList.remove('hidden');
 }
 
 // Signing in is optional, so it lives here rather than in front of the app.
@@ -3052,7 +3340,7 @@ function signInForm() {
   }
   return el('div', { class: 'sc-row signin', id: 'signin' },
     el('span', { class: 'lab' }, el('b', {}, 'Sign in to sync'),
-      el('span', {}, 'Keeps this browser, your other Chrome profiles and your phone in step. What is here now goes into the account.')),
+      el('span', {}, 'With Pro, keeps this browser, your other Chrome profiles and your phone in step. What is here now goes into the account.')),
     el('div', { class: 'signin-form' }, email, pass,
       el('div', { class: 'signin-actions' },
         el('button', { class: 'primary', onclick: go('signin') }, 'Sign in'),
@@ -3123,27 +3411,49 @@ function tagSettingRow(t, count) {
 // Rewrites the tag on every item that carries it, and in the search box if you were
 // filtering by it. Deleting only takes the label off — it never deletes the item.
 async function renameTag(from, to) {
-  await eachTagged(from, (tags) => [...new Set(tags.map((x) => (x === from ? to : x)))]);
+  await eachTagged(from, (tags) => [...new Set(tags.map((x) => (x === from ? to : x)))], { from, to });
   if (state.tagColors[from]) { state.tagColors[to] = state.tagColors[from]; delete state.tagColors[from]; }
   await chrome.storage.local.set({ tagColors: state.tagColors });
   $('#q').value = retagQuery($('#q').value, from, to);
   toast(`Renamed #${from} to #${to}`);
 }
 async function deleteTag(t) {
-  await eachTagged(t, (tags) => tags.filter((x) => x !== t));
+  await eachTagged(t, (tags) => tags.filter((x) => x !== t), { from: t, to: null });
   delete state.tagColors[t];
   await chrome.storage.local.set({ tagColors: state.tagColors });
   $('#q').value = retagQuery($('#q').value, t);
   toast(`Removed #${t} from every item`);
 }
 
-async function eachTagged(tag, change) {
+async function eachTagged(tag, change, op) {
   for (const item of state.items) {
     if (!item.tags.includes(tag)) continue;
     await saveTags(item, change(item.tags));
   }
+  // A locked vault's tags are encrypted, so they cannot be changed now. The
+  // rename or delete is kept and done the next time the vault is unlocked;
+  // it used to be skipped for good, leaving those logins on the old tag.
+  if (!state.vaultKey && op) {
+    const { pendingTagOps = [] } = await chrome.storage.local.get('pendingTagOps');
+    await chrome.storage.local.set({ pendingTagOps: [...pendingTagOps, op] });
+  }
   loadNotes(); loadLater(); loadClips();
   if (state.vaultKey) loadVault();
+}
+
+// Tag renames and deletes made while the vault was locked, done to its logins
+// now that it is open.
+async function applyPendingTagOps() {
+  const { pendingTagOps = [] } = await chrome.storage.local.get('pendingTagOps');
+  if (!pendingTagOps.length || !state.vaultKey) return;
+  for (const row of state.vault) {
+    let tags = row.tags || [];
+    for (const { from, to } of pendingTagOps) {
+      if (tags.includes(from)) tags = [...new Set(tags.map((t) => (t === from ? to : t)).filter(Boolean))];
+    }
+    if (JSON.stringify(tags) !== JSON.stringify(row.tags || [])) { row.tags = tags; await saveVaultRow(row); }
+  }
+  await chrome.storage.local.remove('pendingTagOps');
 }
 
 // ---------- Settings data ----------
@@ -3166,7 +3476,7 @@ async function captureOrigins() {
   return origins;
 }
 
-const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false };
+const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false, clearClipboard: true };
 
 async function saveSettings(patch) {
   const { settings } = await chrome.storage.local.get('settings');
@@ -3303,8 +3613,8 @@ function openActive(e) {
   if (item.kind === 'vault') {
     if (state.vaultState !== 'open') return drawVaultGate({ focus: true });
     // Ctrl+Enter copies the password; plain Enter fills, when the page matches.
-    if (e.metaKey || e.ctrlKey) return safe(() => copy(item.row.password || '', 'Password copied'))();
-    return hostMatches(item.row.url, state.tabHost) ? fillItem(item.row) : safe(() => copy(item.row.password || '', 'Password copied'))();
+    if (e.metaKey || e.ctrlKey) return safe(() => copySecret(item.row.password || '', 'Password copied'))();
+    return hostMatches(item.row.url, state.tabHost) ? fillItem(item.row) : safe(() => copySecret(item.row.password || '', 'Password copied'))();
   }
 }
 
@@ -3387,7 +3697,6 @@ function fitToWindow() {
 fitToWindow();
 requestAnimationFrame(fitToWindow);
 addEventListener('resize', fitToWindow);
-
 // ---------- Staying current in the side panel and a tab ----------
 // The popup is opened fresh each time, so it never sees anything change. The
 // panel stays open for hours while you switch tabs and save things from the

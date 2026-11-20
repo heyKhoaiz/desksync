@@ -472,6 +472,23 @@
       ok(`the bar under "${title}" fits, every button on one line`, !over && !tall,
         { scroll: foot.scrollWidth, client: foot.clientWidth, labels: [...foot.querySelectorAll('button')].map((b) => b.textContent) });
     }
+    // A login too, with its longest label ("Fill on this page"): the screenshot
+    // for the store showed Edit, Lock and Delete cut off.
+    await unlockVault();
+    document.querySelector('.rail [data-f=vault]').click();
+    await wait(120);
+    for (const [title, kind] of [['GitHub', 'Fill'], ['Supabase', 'Password']]) {
+      rowFor(title).click();
+      await wait(140);
+      const foot = document.querySelector('#detail .d-foot');
+      const pane = document.getElementById('detail').getBoundingClientRect();
+      const cut = [...foot.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().right > pane.right - 2).map((b) => b.textContent || b.title);
+      ok(`the bar under a login fits (with ${kind}): Username, Edit, Lock and Delete all on screen`,
+        foot.scrollWidth <= foot.clientWidth + 1 && !cut.length && foot.textContent.includes(kind),
+        { scroll: foot.scrollWidth, client: foot.clientWidth, cut, text: foot.textContent });
+    }
+    document.getElementById('home').click();
+    await wait(80);
 
     // ================= COPY WITHOUT THE CLIPBOARD API =================
     // A page that is not secure has no navigator.clipboard. Copy used to throw
@@ -659,6 +676,205 @@
     }
     document.getElementById('home').click();
     await wait(200);
+
+    // ================= BACKUP CODES =================
+    group('backup codes');
+    await reset();
+    await unlockVault();
+    {
+      const gh = () => window.__DATA.vault_items.find((v) => v.id === 'v1')._plain;
+      const openGitHub = async () => {
+        document.querySelector('.rail [data-f=vault]').click();
+        await wait(100);
+        rowFor('GitHub').click();
+        await wait(150);
+      };
+      const edit = async () => { $$('#detail .d-foot button').find((b) => /Edit/.test(b.textContent)).click(); await wait(80); };
+      const saveForm = async () => { $$('#detail .d-foot button').find((b) => /Save/.test(b.textContent)).click(); await wait(250); };
+      const paste = (text) => {
+        const box = document.getElementById('v-codes');
+        box.value = text;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      await openGitHub();
+      ok('a login with no codes shows no codes section', !document.querySelector('#detail .codes'));
+      await edit();
+      paste('Your GitHub recovery codes\n\na1b2c-3d4e5\nf6a7b-8c9d0\n11111-22222\n');
+      eq('pasting counts the codes it read', document.getElementById('v-codes-found').textContent, '3 codes found');
+      await saveForm();
+      eq('Save keeps them with the login, encrypted', gh().codes?.map((x) => x.c), ['a1b2c-3d4e5', 'f6a7b-8c9d0', '11111-22222']);
+      ok('the heading line is not a code', !gh().codes.some((x) => /GitHub/.test(x.c)));
+
+      await openGitHub();
+      eq('the login says how many are left', document.getElementById('codes-left')?.textContent, '3 of 3 codes left');
+      ok('the codes are hidden until shown', !/a1b2c/.test(document.querySelector('#detail .codes').textContent));
+      ok('the list says it too', /3 of 3 codes left/.test(rowFor('GitHub').textContent), rowFor('GitHub').textContent);
+
+      // Copy one: it is copied, marked used, and the clipboard is to be cleared.
+      const sent = [];
+      chrome.runtime = { sendMessage: async (m) => { sent.push(m); return { ok: true }; } };
+      let copied = null;
+      const realWrite = navigator.clipboard.writeText;
+      navigator.clipboard.writeText = async (t) => { copied = t; };
+      document.querySelector('#detail .code-copy').click();
+      await wait(250);
+      eq('Copy puts the code on the clipboard', copied, 'a1b2c-3d4e5');
+      ok('and marks it used', !!gh().codes.find((x) => x.c === 'a1b2c-3d4e5').used);
+      eq('the count goes down', document.getElementById('codes-left')?.textContent, '2 of 3 codes left');
+      ok('two left is a warning', !!document.querySelector('#detail .codes-warn'));
+      ok('the used one is folded away', /Used \(1\)/.test(document.querySelector('#detail .codes-used summary')?.textContent || ''));
+      ok('the clipboard is to be cleared, by a hash, not the code itself',
+        sent.some((m) => m.type === 'clear-clipboard-later' && /^[0-9a-f]{64}$/.test(m.hash) && !JSON.stringify(m).includes('a1b2c')), sent);
+      const undo = document.querySelector('#toast .toast-act');
+      ok('the message offers Undo', undo?.textContent === 'Undo');
+      undo.click();
+      await wait(250);
+      ok('Undo puts the code back', !gh().codes.find((x) => x.c === 'a1b2c-3d4e5').used);
+      eq('and the count with it', document.getElementById('codes-left')?.textContent, '3 of 3 codes left');
+
+      // A password copy is cleared too; with the setting off, nothing is asked.
+      sent.length = 0;
+      rowFor('GitHub').querySelector('[data-row-act=copy]').click();
+      await wait(80);
+      ok('a copied password is cleared from the clipboard too', sent.some((m) => m.type === 'clear-clipboard-later'), sent);
+      state.clearClipboard = false;
+      sent.length = 0;
+      rowFor('GitHub').querySelector('[data-row-act=copy]').click();
+      await wait(80);
+      eq('unless that is turned off in Settings', sent.length, 0);
+      state.clearClipboard = true;
+      navigator.clipboard.writeText = realWrite;
+      delete chrome.runtime;
+
+      // Editing the login for something else keeps the codes.
+      await edit();
+      document.getElementById('v-user').value = 'someone-else';
+      document.getElementById('v-user').dispatchEvent(new Event('input', { bubbles: true }));
+      await saveForm();
+      ok('an edit that does not touch the codes keeps them', gh().codes?.length === 3 && gh().username === 'someone-else', gh());
+
+      // A new set from the site replaces the old one.
+      await openGitHub();
+      await edit();
+      ok('the editor says what is saved now', /3 of 3 codes left/.test(document.querySelector('.v-codes label').textContent));
+      paste('9999 0000\n8888 1111');
+      await saveForm();
+      eq('a new set replaces the old codes', gh().codes.map((x) => x.c), ['9999 0000', '8888 1111']);
+      document.getElementById('home').click();
+      await wait(100);
+    }
+
+    // ================= MANY ACCOUNTS: SITE FIRST, IMPORT =================
+    group('logins: this site first, import');
+    await reset();
+    await unlockVault();
+    {
+      document.querySelector('.rail [data-f=vault]').click();
+      await wait(120);
+      const heads = $$('#list .g-head').map((e) => e.textContent);
+      eq('the vault starts with the logins for the page you are on', heads[0], 'On github.com');
+      eq('GitHub is first', rowTitles()[0], 'GitHub');
+
+      // Chrome's export, with one login already here and one empty row.
+      await importPasswords('name,url,username,password,note\n' +
+        'GitHub,https://github.com/,khoaiz,hunter2hunter2,\n' +
+        'Instagram,https://www.instagram.com/,brand_a,pw-a,Client A\n' +
+        'Instagram,https://www.instagram.com/,brand_b,pw-b,Client B\n' +
+        'Empty,https://nothing.example/,,,\n');
+      await wait(200);
+      const titles = window.__DATA.vault_items.map((v) => v._plain?.username);
+      ok('an import adds the new logins, encrypted', titles.includes('brand_a') && titles.includes('brand_b'), titles);
+      eq('and skips one already here', titles.filter((t) => t === 'khoaiz').length, 1);
+      ok('and says what it did', /2 logins imported · 1 already here · 1 empty skipped/.test(document.getElementById('toast').textContent),
+        document.getElementById('toast').textContent);
+      ok('two accounts on one site are two logins', rowTitles().filter((t) => t === 'Instagram').length === 2, rowTitles());
+      await importPasswords('date,amount\n1,2');
+      await wait(60);
+      ok('a file that is not an export is refused, saying why', /does not look like a password export/.test(document.getElementById('toast').textContent));
+
+      // Alt+Shift+L with the vault locked opens on the vault, ready to unlock.
+      await lockVault();
+      document.getElementById('home').click();
+      await wait(100);
+      chrome.storage.session = { async get() { return { pendingAction: 'vault' }; }, async remove() {} };
+      await startAction();
+      await wait(200);
+      delete chrome.storage.session;
+      ok('a locked vault opens ready to unlock', state.filter === 'vault' && document.activeElement === document.querySelector('.gate input'),
+        [state.filter, document.activeElement?.tagName]);
+      document.getElementById('home').click();
+      await wait(100);
+    }
+
+    // ================= LAUNCH READINESS =================
+    group('launch: left-over fixes, help, the review request');
+    await reset();
+    {
+      // Enter over a selection is one step to undo.
+      await openNoteEditor('Grocery');
+      const area = document.getElementById('ed-area');
+      editorType('hello world');
+      area.setSelectionRange(5, 6);                       // the space
+      area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await wait(10);
+      eq('Enter over a selection replaces it with a line break', editorText(), 'hello\nworld');
+      area.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
+      await wait(10);
+      eq('and one Ctrl+Z brings the selection back', editorText(), 'hello world');
+      document.getElementById('home').click();
+      await wait(200);
+
+      // A link's note is saved with every keystroke, not after a pause.
+      rowFor('Migrate to Manifest V3').click();
+      await wait(140);
+      const ln = document.getElementById('link-note');
+      ln.value = 'read before Friday';
+      ln.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(30);
+      eq('a link note is saved at once', window.__DATA.read_later.find((r) => r.id === 'l1').note, 'read before Friday');
+
+      // A tag renamed while the vault is locked reaches its logins on unlock.
+      document.getElementById('home').click();
+      await wait(100);
+      await renameTag('work', 'job');
+      await unlockVault();
+      await wait(200);
+      ok('a tag renamed while the vault was locked is renamed on its logins once unlocked',
+        window.__DATA.vault_items.find((v) => v.id === 'v1')._plain.tags.includes('job') &&
+        !window.__DATA.vault_items.find((v) => v.id === 'v1')._plain.tags.includes('work'),
+        window.__DATA.vault_items.find((v) => v.id === 'v1')._plain.tags);
+      ok('and the pending change is used up', !window.__store.pendingTagOps);
+
+      // Help in Settings: feedback only once an address is set.
+      setScreen('settings');
+      await wait(30);
+      ok('no feedback link while no support address is set', !document.getElementById('send-feedback'));
+      ok('Rate DeskSync is there', !!document.getElementById('rate-store'));
+      DESKSYNC_CONFIG.SUPPORT_EMAIL = 'help@example.com';
+      drawSettings();
+      ok('with an address, Send feedback appears', !!document.getElementById('send-feedback'));
+      ok('and writes to it, naming the version', /^mailto:help@example\.com\?subject=DeskSync/.test(feedbackUrl()), feedbackUrl());
+      delete DESKSYNC_CONFIG.SUPPORT_EMAIL;
+      setScreen(null);
+      await wait(30);
+
+      // The review request: after a week, once.
+      const strip = () => document.getElementById('review-ask');
+      window.__store.installedAt = Date.now() - 2 * 86400000;
+      await maybeAskForReview();
+      ok('not in the first week', strip().classList.contains('hidden'));
+      window.__store.installedAt = Date.now() - 9 * 86400000;
+      await maybeAskForReview();
+      ok('after a week of use, it asks', !strip().classList.contains('hidden') && /review/.test(strip().textContent));
+      strip().querySelector('.ra-no').click();
+      await wait(30);
+      ok('Not now puts it away', strip().classList.contains('hidden'));
+      await maybeAskForReview();
+      ok('and it never asks again', strip().classList.contains('hidden') && !!window.__store.reviewAsked);
+      delete window.__store.installedAt;
+      delete window.__store.reviewAsked;
+    }
 
     // ================= HOVER HIGHLIGHTS, A CLICK CHOOSES =================
     group('hover and selection, in every section');
@@ -1504,9 +1720,10 @@
     await wait(140);
     ok('the password is masked until asked for',
       document.getElementById('vpw').textContent.startsWith('•'), document.getElementById('vpw').textContent);
-    $$('.d-foot button').find((b) => /Show/.test(b.textContent)).click();
-    ok('Show reveals it', document.getElementById('vpw').textContent === 'hunter2hunter2',
+    document.getElementById('vpw-show').click();
+    ok('Show, beside the password, reveals it', document.getElementById('vpw').textContent === 'hunter2hunter2',
       document.getElementById('vpw').textContent);
+    eq('and says it is shown', document.getElementById('vpw-show').getAttribute('aria-pressed'), 'true');
 
     $$('.d-foot button').find((b) => b.getAttribute('title') === 'Lock the vault').click();
     await wait(120);
@@ -1620,6 +1837,38 @@
     ok('choosing asks a second time first', !window.__resolvedVault, window.__resolvedVault);
     window.__vaultConflict = false;
     setScreen(null);
+
+    // ================= PLANS =================
+    group('plans');
+    await reset();
+    setScreen('settings');
+    await wait(30);
+    ok('Pro is shown with no limits', /Pro/.test(document.querySelector('.sc-body').textContent) &&
+      /No limit/.test(document.querySelector('.sc-body').textContent));
+    ok('Pro keeps the trash a year', /a year/.test(document.querySelector('.sc-body').textContent));
+    setScreen(null);
+
+    window.__plan = 'free';
+    await reset();
+    setScreen('settings');
+    await wait(30);
+    const planText = document.querySelector('.sc-body').textContent;
+    ok('Free names its limits', /newest 200 captured clips/.test(planText) && /30 days/.test(planText), planText.slice(0, 300));
+    ok('and says sync is part of Pro', /Free plan: everything stays on this device/.test(planText));
+    ok('the offline strip does not count changes that will never sync',
+      document.getElementById('offline-bar').classList.contains('hidden'));
+    setScreen(null);
+    // Ten templates already: the eleventh is refused, and the note is untouched.
+    for (let i = 0; i < 10; i++) state.notes.push({ id: 'tpl' + i, title: 'T' + i, body: '', format: 'plain', tags: ['template'] });
+    startNote();
+    await wait(60);
+    toggleTemplate();
+    await wait(30);
+    ok('Free refuses an eleventh template', !state.draft.tags.includes('template'), state.draft.tags);
+    state.notes = state.notes.filter((n) => !/^tpl/.test(n.id));
+    document.getElementById('home').click();
+    await wait(80);
+    window.__plan = undefined;
 
     // ================= THEME =================
     group('theme');
@@ -1827,7 +2076,7 @@
     document.querySelector('.rail [data-f=clip]').click();
     await wait(60);
     ok('an empty Clipboard says how to fill it',
-      /Alt\+Shift\+V/.test(document.querySelector('#list .empty.hint')?.textContent || ''),
+      /Save the clipboard above/.test(document.querySelector('#list .empty.hint')?.textContent || ''),
       document.querySelector('#list')?.textContent);
     document.querySelector('.rail [data-f=all]').click();
     await reset();

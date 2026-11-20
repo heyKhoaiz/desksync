@@ -9,6 +9,20 @@ class Repository {
 
   final SupabaseClient _sb;
 
+  /// The app is part of DeskSync Pro (supabase/migrations/004_plans.sql). A
+  /// database without that migration has no plans, so everyone is let in, as
+  /// before. Offline, also let in: the lists say what is wrong soon enough.
+  Future<bool> isPro() async {
+    try {
+      return await _sb.rpc('is_pro') == true;
+    } on PostgrestException catch (e) {
+      final missing = e.code == 'PGRST202' || e.code == '42883' || e.message.contains('Could not find the function');
+      return missing;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<List<Note>> notes() async {
     final rows = await _sb
         .from('notes')
