@@ -183,7 +183,17 @@ const sync = {
       return true;
     }
     if (remote.salt === local.salt && remote.verifier_ct === local.verifier_ct) {
-      if (local._dirty) await store.setVaultMeta(local, { fromServer: true });
+      // The same vault. Its master password or recovery key may have changed:
+      // a change made here goes up, one made elsewhere comes down.
+      if (local._dirty) {
+        if (VAULT_WRAP_FIELDS.some((k) => (local[k] ?? null) !== (remote[k] ?? null))) {
+          const { error: e2 } = await sb.from('vault_meta').upsert(cleanRow(local));
+          if (e2) throw e2;
+        }
+        await store.setVaultMeta(local, { fromServer: true });
+      } else if (VAULT_WRAP_FIELDS.some((k) => (local[k] ?? null) !== (remote[k] ?? null))) {
+        await store.setVaultMeta(remote, { fromServer: true });
+      }
       return true;
     }
     // A vault on each side, under different master passwords. Merging would leave
@@ -214,6 +224,19 @@ const sync = {
     } else throw new Error('keep must be account or device');
     await store.setVaultConflict(null);
     return this.run();
+  },
+
+  // Forgot the master password, and no recovery key: the vault's items and
+  // settings go, on the server first and then here. Offline, nothing changes,
+  // so the account's copy cannot come back on the next sync.
+  async resetVault() {
+    if (await currentUser()) {
+      const { error } = await sb.from('vault_items').delete().not('id', 'is', null);
+      if (error) throw error;
+      const { error: e2 } = await sb.from('vault_meta').delete().not('user_id', 'is', null);
+      if (e2) throw e2;
+    }
+    await store.clearVault();
   },
 
   async _push(tables = SYNC_TABLES) {

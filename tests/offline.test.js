@@ -47,7 +47,12 @@ function makeCtx({ signedIn = true } = {}) {
           calls.push(['upsert', table, row]);
           if (!ctx.__offline) server.vault_meta = { ...row, user_id: 'u1' };
           return answer({ data: null, error: null });
-        }
+        },
+        delete() { return { not() {
+          calls.push(['delete-all', table]);
+          if (!ctx.__offline) server.vault_meta = null;
+          return answer({ data: null, error: null });
+        } }; }
       };
     }
     return {
@@ -416,6 +421,62 @@ async function test(name, fn) {
     assert.strictEqual(ctx.__server.vault_meta.salt, 'mine');
     assert.deepStrictEqual(ctx.__server.vault_items.map((r) => r.id), ['v-mine']);
     assert.deepStrictEqual((await run(ctx, `return db.list('vault_items')`)).map((r) => r.id), ['v-mine']);
+  });
+
+  // The wrapped vault key (lib/crypto.js): same vault, new master password.
+  const WRAP = (tag) => ({ pw_salt: 'ps-' + tag, pw_wrap_iv: 'pi-' + tag, pw_wrap_ct: 'pc-' + tag });
+
+  await test('a vault from before wrapping uploads with no wrap columns', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await sync.run();`);
+    const sent = ctx.__calls.find((c) => c[0] === 'upsert' && c[1] === 'vault_meta')[2];
+    assert.ok(!('pw_wrap_ct' in sent) && !('rk_wrap_ct' in sent), JSON.stringify(sent));
+  });
+
+  await test('a master password changed here reaches the account', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await sync.run();`);
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify({ ...META('mine'), ...WRAP('new') })}); await sync.run();`);
+    assert.strictEqual(ctx.__server.vault_meta.pw_wrap_ct, 'pc-new');
+    assert.strictEqual(await run(ctx, `return store.vaultConflict()`), null, 'not taken for another vault');
+    assert.strictEqual((await run(ctx, `return store.rawVaultMeta()`))._dirty, false);
+  });
+
+  await test('a master password changed elsewhere comes down', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify({ ...META('mine'), ...WRAP('old') })}); await sync.run();`);
+    ctx.__server.vault_meta = { ...ctx.__server.vault_meta, ...WRAP('other'), rk_salt: 'rs', rk_wrap_iv: 'ri', rk_wrap_ct: 'rc' };
+    await run(ctx, `await sync.run()`);
+    const m = await run(ctx, `return store.vaultMeta()`);
+    assert.strictEqual(m.pw_wrap_ct, 'pc-other');
+    assert.strictEqual(m.rk_wrap_ct, 'rc');
+  });
+
+  await test('resetting the vault clears it on the server, then here', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v1', iv: 'a', ciphertext: 'b' }); await sync.run();`);
+    await run(ctx, `await sync.resetVault()`);
+    assert.strictEqual(ctx.__server.vault_meta, null);
+    assert.strictEqual(ctx.__server.vault_items.length, 0);
+    assert.strictEqual(await run(ctx, `return store.vaultMeta()`), null);
+    assert.strictEqual((await run(ctx, `return db.list('vault_items')`)).length, 0);
+  });
+
+  await test('offline, resetting the vault changes nothing anywhere', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v1', iv: 'a', ciphertext: 'b' }); await sync.run();`);
+    ctx.__offline = true;
+    await assert.rejects(run(ctx, `await sync.resetVault()`));
+    ctx.__offline = false;
+    assert.strictEqual(ctx.__server.vault_items.length, 1);
+    assert.strictEqual((await run(ctx, `return store.vaultMeta()`)).salt, 'mine');
+  });
+
+  await test('signed out, resetting the vault clears this device only', async () => {
+    const ctx = makeCtx({ signedIn: false });
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v1' }); await sync.resetVault();`);
+    assert.strictEqual(await run(ctx, `return store.vaultMeta()`), null);
+    assert.ok(!ctx.__calls.some((c) => c[0] === 'delete-all'));
   });
 
   console.log('\nplans');

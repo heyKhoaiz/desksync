@@ -41,6 +41,9 @@ every Chrome profile and the Android app, through Supabase; the phone app requir
 | Step | Spec |
 |---|---|
 | Key derivation | PBKDF2-HMAC-SHA256, 600,000 iterations, 16-byte random salt → 256-bit key |
+| Vault key | Random 256-bit key that encrypts every item; never changes. Vaults from before migration 005 use PBKDF2(master password, `salt`) instead |
+| Master password wrap | `pw_wrap_ct` = AES-GCM(PBKDF2(master password, `pw_salt`), base64(vault key)). When present, it is the only way the master password opens the vault |
+| Recovery key wrap | `rk_wrap_ct` = AES-GCM(PBKDF2(recovery key, `rk_salt`), base64(vault key)). Recovery key: 20 random bytes in Crockford base32, 8 groups of 4; uppercased with I/L read as 1 and O as 0 before use |
 | Encryption | AES-256-GCM, 12-byte random IV per write, 16-byte tag appended to ciphertext |
 | Encoding | standard base64 |
 | Payload | JSON `{title, url, username, password, notes}` |
@@ -48,7 +51,9 @@ every Chrome profile and the Android app, through Supabase; the phone app requir
 
 - Master password and key never leave the device. Server stores only ciphertext.
 - Extension keeps the unlocked key in `chrome.storage.session` (memory only), auto-locks after 15 min.
-- Forgotten master password = vault lost (state this clearly in the UI and store listing).
+- Forgotten master password: the recovery key opens the vault and sets a new one. No recovery key = vault lost; the only way out is Reset, which deletes its items (state this clearly in the UI and store listing).
+- Changing the master password or the recovery key rewrites only `vault_meta`; items are never re-encrypted, and `salt` + `verifier_ct` (the vault's identity for sync) stay the same.
+- Code: `extension/lib/crypto.js` (`vaultKeys`), tests in `tests/vaultkeys.test.js`.
 - Flutter: use the `cryptography` package (`Pbkdf2`, `AesGcm.with256bits()`); its `SecretBox` = ciphertext + 16-byte MAC, matching WebCrypto's output.
 
 ## 4. Chrome extension (built)
