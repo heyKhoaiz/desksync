@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskSync privacy policy</title><link rel="icon" href="icon128.png"><link rel="stylesheet" href="style.css"></head>
+<body><header class="top"><a class="brand" href="./"><span class="mark">D</span> DeskSync</a></header>
+<main class="doc"><h1 id="desksync-privacy-policy">DeskSync privacy policy</h1>
+<p>Last updated: 20 November 2026</p>
+<p>DeskSync is a browser extension (and an optional Android app) for notes, read-later links, clipboard history and an encrypted password vault. This page says what it stores, where, and who can see it.</p>
+<h2 id="without-an-account">Without an account</h2>
+<p>Everything stays in your browser, in the extension's own storage (<code>chrome.storage.local</code>). Nothing is sent anywhere. Uninstalling the extension, or clearing its data, deletes it; use Settings → Export to keep a copy.</p>
+<h2 id="with-an-account-optional">With an account (optional)</h2>
+<p>If you sign in, your notes, read-later links, clips and vault items are copied to a database run on Supabase, so they can sync to your other browsers and your phone. Each row is tied to your account and protected by row-level security: only you can read or change your rows.</p>
+<ul><li><b>Notes, links and clips</b> are stored as you wrote or copied them. They are not end-to-end encrypted: they are protected by your account, not by a key only you hold.</li><li><b>Vault items</b> (logins and passwords) are encrypted in your browser before they are saved, with a key derived from your master password (PBKDF2, 600,000 iterations, then AES-GCM). The master password and the key never leave your device. Nobody else, including whoever runs the database, can read your vault, and a forgotten master password cannot be recovered.</li><li><b>Your email address</b> is used to sign you in.</li></ul>
+<p>Signing out keeps your data on the device. "Sign out and erase this device" removes it from the browser; your account keeps its copy.</p>
+<h2 id="backup-codes-and-copied-passwords">Backup codes and copied passwords</h2>
+<p>Backup codes you paste into a login are stored with it, encrypted with your master password like the rest of the vault. Copying a code marks it used; nothing is sent anywhere.</p>
+<p>A copied password, backup code or key is taken off your clipboard 30 seconds later, unless you have copied something else since. To check that, DeskSync keeps a one-way hash of what it copied, never the text itself, and forgets it once the 30 seconds are up. You can turn this off in Settings.</p>
+<h2 id="filling-logins-and-importing-passwords">Filling logins and importing passwords</h2>
+<p>Filling a login (Alt+Shift+L, or Fill in DeskSync) gives DeskSync access to the page in front only, at that moment, to type into its sign-in form. When a site has several saved logins, the page is shown their names and usernames to choose from; no password reaches the page until you choose. Other pages are never read.</p>
+<p>Importing passwords reads the CSV file you choose inside your browser and encrypts each login there. The file is not uploaded anywhere. Delete it afterwards: password exports are not encrypted.</p>
+<h2 id="clipboard">Clipboard</h2>
+<p>Clipboard history is <b>off</b> by default. When you turn it on, DeskSync records what you copy only on sites you approve one at a time, and never from password fields. Text that looks like an API key, token or private key is left out unless you turn that protection off. For each clip only the site's hostname is kept, not the full address, because full addresses can carry secrets such as reset tokens.</p>
+<p>"Save the clipboard" reads the clipboard once, when you ask.</p>
+<h2 id="other-permissions-and-what-they-are-used-for">Other permissions, and what they are used for</h2>
+<ul><li><b>Tabs and active tab</b>: to save the page you are on, show its title and address, fill a login when you press Alt+Shift+L or Fill, and type a note or clip into a text box on it when you ask ("Insert").</li><li><b>Site access (optional, per site)</b>: clipboard capture on approved sites, filling a saved login on the site it belongs to, and inserting text from the side panel.</li><li><b>Side panel</b>: to show DeskSync beside the page.</li><li><b>Favicon</b>: to show a saved link's site icon from Chrome's own cache. Nothing is fetched from the site.</li><li><b>Context menus, keyboard shortcuts, address bar keyword ("ds")</b>: ways to save and search.</li><li><b>Alarms</b>: syncing in the background, locking the vault after a period of inactivity, and clearing a copied password after 30 seconds.</li><li><b>Offscreen document</b>: the background part of an extension has no clipboard, so a hidden page clears a copied password, only if the clipboard still holds what DeskSync copied.</li></ul>
+<h2 id="the-websites-waitlist">The website's waitlist</h2>
+<p>If you join the waitlist on DeskSync's website, your email address is stored to tell you when sync (DeskSync Pro) is available, and for nothing else. It is not shared, and it can be read only by DeskSync's owner. To be removed, write to the address below.</p>
+<h2 id="what-desksync-does-not-do">What DeskSync does not do</h2>
+<ul><li>No analytics, tracking, advertising or telemetry.</li><li>No selling or sharing of your data with anyone.</li><li>No reading of pages, history or forms beyond the actions above, each started by you.</li></ul>
+<h2 id="deleting-your-data">Deleting your data</h2>
+<p>Without an account: uninstall the extension, or use "Sign out and erase this device". With an account: delete your items in the app (they are removed from the trash after 30 days, or at once with "Delete forever"), or contact us to have the account and all its rows deleted.</p>
+<h2 id="contact">Contact</h2>
+<p>Questions, or a request to delete your account or waitlist entry: support@desksync.org</p></main>
+<footer class="foot"><span>DeskSync</span><a href="./">Home</a></footer></body></html>

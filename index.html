@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskSync: notes, saved pages, copied text and logins in one private place</title>
+<meta name="description" content="A Chrome extension that keeps the things you need while browsing (notes, saved pages, copied text and logins) in one private, searchable place. Works offline; sync is optional.">
+<link rel="icon" href="icon128.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><span class="mark">D</span> DeskSync</a>
+  <nav><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#pro">Sync</a></nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>Everything you keep while browsing, <em>in one search</em></h1>
+      <p class="lead">Notes, saved pages, copied text and logins, in one private place inside Chrome.
+        Works the moment it is installed, with no account.</p>
+      <p class="cta">
+        <a class="btn" id="install" href="{{STORE_URL}}">Add to Chrome, free</a>
+        <span class="small" id="install-note">Chrome, Edge, Brave and other Chromium browsers</span>
+      </p>
+    </div>
+    <img class="shot hero-shot" src="app-1.png" width="780" height="560" alt="DeskSync's popup: one search showing a note and a saved page that both match “launch”">
+  </section>
+
+  <section id="features" class="features">
+    <article>
+      <img class="shot" src="app-2.png" width="780" height="560" alt="A note with a checklist, two items ticked">
+      <h2>Notes that look like notes</h2>
+      <p>Bold, lists and checklists show as they look. Tick a task and the list remembers how far
+        along you are. Alt+Shift+K starts a note from any page.</p>
+    </article>
+    <article>
+      <img class="shot" src="app-3.png" width="780" height="560" alt="The vault: several accounts and a login's backup codes, 6 of 8 left">
+      <h2>Every account, every backup code</h2>
+      <p>Several logins on one site, told apart by name, with the backup codes that came with each
+        and how many are left. Encrypted with your master password before it is saved.</p>
+    </article>
+    <article>
+      <img class="shot" src="app-4.png" width="780" height="560" alt="A sign-in page with DeskSync's account chooser listing two accounts">
+      <h2>Signed out? One shortcut</h2>
+      <p>Press Alt+Shift+L on a sign-in page. One account fills at once; with several, you choose.
+        The page sees names, never passwords, until you pick one.</p>
+    </article>
+    <article>
+      <img class="shot" src="app-5.png" width="780" height="560" alt="DeskSync open in Chrome's side panel beside an article">
+      <h2>Beside the page</h2>
+      <p>Keep DeskSync in the side panel while you read. Save the tab with Alt+Shift+S, or a quote
+        with its source from the right-click menu.</p>
+    </article>
+  </section>
+
+  <section id="privacy" class="band">
+    <h2>Private by design</h2>
+    <ul class="points">
+      <li><b>Saved in your browser first.</b> Nothing leaves it unless you sign in to sync.</li>
+      <li><b>Logins encrypted on your device</b> with a master password that never leaves it.</li>
+      <li><b>Copied passwords cleared</b> from the clipboard after 30 seconds.</li>
+      <li><b>No analytics, no tracking, no ads.</b> Not now, not later.</li>
+    </ul>
+    <p><a href="privacy.html">Read the privacy policy</a></p>
+  </section>
+
+  <section id="pro" class="pro">
+    <div class="plans">
+      <div class="plan">
+        <h3>Free</h3>
+        <p class="price">$0</p>
+        <ul><li>Everything on one computer</li><li>Notes, read later, clipboard</li><li>Vault, backup codes, fill</li><li>Side panel, search, tags</li></ul>
+      </div>
+      <div class="plan soon">
+        <h3>Pro <span class="tag">coming soon</span></h3>
+        <p class="price">about $2.50<span>/month</span></p>
+        <ul><li>Sync across every computer</li><li>The Android app</li><li>Encrypted backups in your account</li><li>Unlimited clipboard history</li></ul>
+      </div>
+    </div>
+    <form class="waitlist" id="waitlist" novalidate>
+      <label for="email">Want sync? Join the waitlist, and hear first when Pro opens.</label>
+      <div class="row">
+        <input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com">
+        <button class="btn" type="submit">Join</button>
+      </div>
+      <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      <p class="small">Your email is used for this and nothing else. <a href="privacy.html#the-websites-waitlist">More</a></p>
+    </form>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>DeskSync</span>
+  <a href="privacy.html">Privacy</a>
+  <a href="mailto:support@desksync.org">Contact</a>
+</footer>
+
+<script>
+  window.DESKSYNC_SITE = { url: 'https://phecqzxzzhtbwngntlcw.supabase.co', key: 'sb_publishable_wKqOU-TkxrOmni6Qgq1QCA_KMQOFMth', store: '{{STORE_URL}}' };
+</script>
+<script src="waitlist.js"></script>
+</body>
+</html>
