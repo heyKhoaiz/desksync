@@ -38,7 +38,7 @@ After changing extension code, run `make ext` again and click reload on the exte
 Plug in a phone with USB debugging on, then run `make app`. See `mobile/README.md`.
 
 ### Commands
-Run `make` to list them all: `env`, `ext`, `zip`, `site`, `store-check`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
+Run `make` to list them all: `env`, `ext`, `zip`, `site`, `store-check`, `admin`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
 
 ### Publishing
 See [docs/STORE_LISTING.md](docs/STORE_LISTING.md): what to paste into the Chrome Web Store, the

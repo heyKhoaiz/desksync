@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext zip site publish-site store-check icons app apk devices test test-ext clean check-env
+.PHONY: help env ext zip site publish-site wp-theme wp-up wp-install wp-down wp-reset store-check admin icons app apk devices test test-ext clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -36,8 +36,26 @@ site: ## Build the website (landing page, privacy policy, waitlist) into dist/si
 publish-site: site ## Publish dist/site to the VPS, where desksync.org is served (deploy/vps/)
 	@./tools/publish_site.sh
 
+wp-theme: ## Ready the WordPress theme for desksync.org and zip it (dist/desksync-theme.zip)
+	@python3 tools/build_wp_theme.py
+
+wp-up: wp-theme ## Run the WordPress site locally on http://localhost:8120
+	@docker compose -f wordpress/docker-compose.yml up -d
+
+wp-install: ## First run of the local WordPress site: install, theme, pages, settings from .env
+	@SUPABASE_URL="$(SUPABASE_URL)" SUPABASE_ANON_KEY="$(SUPABASE_ANON_KEY)" STORE_URL="$(STORE_URL)" SUPPORT_EMAIL="$(SUPPORT_EMAIL)" bash wordpress/bin/install-local.sh
+
+wp-down: ## Stop the local WordPress site, keep its data
+	@docker compose -f wordpress/docker-compose.yml stop
+
+wp-reset: ## Stop the local WordPress site and wipe its database
+	@docker compose -f wordpress/docker-compose.yml down -v
+
 store-check: ext ## Check the build against the Chrome Web Store's rules before uploading
 	@node tools/store-check.mjs dist/extension
+
+admin: check-env ## Open the admin page on this computer: accounts, and giving Pro by hand
+	@python3 tools/admin.py
 
 icons: ## Regenerate the extension icons from tools/make_icons.py
 	@python3 tools/make_icons.py extension/icons

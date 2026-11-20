@@ -3,3 +3,5 @@ node_modules/
 .env
 dist/
 .playwright-mcp/
+wordpress/theme/desksync/assets/img/*.png
+__pycache__/

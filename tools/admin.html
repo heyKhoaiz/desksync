@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskSync admin</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#69717c; --line:#e3e6ea; --pro:#1d6b4f; --pro-bg:#e3f4ec; --warn:#8a5a00; --warn-bg:#fdf1d8; --acc:#2f5bd3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mute); margin:0 0 20px; }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:120px; }
+  .stat b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--mute); font-size:12px; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  input[type=search] { flex:1; min-width:220px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+  .seg button { border:1px solid var(--line); background:#fff; padding:7px 12px; font:inherit; cursor:pointer; }
+  .seg button:first-child { border-radius:6px 0 0 6px; } .seg button:last-child { border-radius:0 6px 6px 0; }
+  .seg button + button { border-left:0; }
+  .seg button[aria-pressed=true] { background:var(--ink); color:#fff; border-color:var(--ink); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); font-weight:600; background:#fafbfc; }
+  tr:last-child td { border-bottom:0; }
+  .email { font-weight:600; word-break:break-all; }
+  .muted { color:var(--mute); font-size:12px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; font-weight:600; background:#eef0f3; color:var(--mute); }
+  .badge.pro { background:var(--pro-bg); color:var(--pro); }
+  .badge.exp { background:var(--warn-bg); color:var(--warn); }
+  .acts { display:flex; gap:6px; justify-content:flex-end; white-space:nowrap; }
+  select, .acts button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
+  .acts .give { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .acts .free[data-armed] { background:#b42318; color:#fff; border-color:#b42318; }
+  button:disabled { opacity:.5; cursor:default; }
+  .empty, .err { padding:30px; text-align:center; color:var(--mute); background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  .err { color:#b42318; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:8px 14px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.on { opacity:1; }
+  @media (max-width:720px) { .hide-sm { display:none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>DeskSync admin</h1>
+  <p class="sub">Accounts on desksync.org's Supabase project. Give Pro to friends, or take it back. Runs on this computer only.</p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="Search by email" aria-label="Search by email">
+    <div class="seg" role="group" aria-label="Show">
+      <button data-f="all" aria-pressed="true">All</button>
+      <button data-f="pro" aria-pressed="false">Pro</button>
+      <button data-f="free" aria-pressed="false">Free</button>
+    </div>
+    <button id="reload" class="seg" style="border:1px solid var(--line);border-radius:6px;background:#fff;padding:7px 12px;font:inherit;cursor:pointer">Refresh</button>
+  </div>
+
+  <div id="list"></div>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+  // The token comes in the address's #fragment, which is never sent to any
+  // server, and is kept for this tab only.
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get('t');
+  if (fromHash) { sessionStorage.setItem('t', fromHash); history.replaceState(null, '', '/'); }
+  const TOKEN = sessionStorage.getItem('t') || '';
+
+  let users = [], waitlist = null, filter = 'all';
+  const $ = (s) => document.querySelector(s);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (v != null && v !== false) n.setAttribute(k, v === true ? '' : v);
+    }
+    n.append(...kids.filter((k) => k != null));
+    return n;
+  };
+  const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
+  const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 2500); };
+
+  async function api(path, opts = {}) {
+    const r = await fetch(path, { ...opts, headers: { 'X-Admin-Token': TOKEN, 'Content-Type': 'application/json' } });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || r.statusText);
+    return body;
+  }
+
+  async function load() {
+    $('#list').replaceChildren(el('div', { class: 'empty' }, 'Loading…'));
+    try {
+      ({ users, waitlist } = await api('/api/users'));
+      draw();
+    } catch (e) {
+      $('#stats').replaceChildren();
+      $('#list').replaceChildren(el('div', { class: 'err' }, e.message));
+    }
+  }
+
+  function draw() {
+    const pro = users.filter((u) => u.plan === 'pro').length;
+    const stat = (n, label) => el('div', { class: 'stat' }, el('b', {}, String(n)), el('span', {}, label));
+    $('#stats').replaceChildren(stat(users.length, 'accounts'), stat(pro, 'Pro'), stat(users.length - pro, 'Free'),
+      waitlist == null ? null : stat(waitlist, 'on the waitlist'));
+
+    const q = $('#q').value.trim().toLowerCase();
+    const rows = users.filter((u) => (filter === 'all' || u.plan === filter) && (!q || u.email.toLowerCase().includes(q)));
+    if (!rows.length) {
+      $('#list').replaceChildren(el('div', { class: 'empty' }, users.length ? 'No account matches.' : 'No accounts yet.'));
+      return;
+    }
+    const body = el('tbody', {}, ...rows.map(row));
+    $('#list').replaceChildren(el('table', {},
+      el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'hide-sm' }, 'Joined'),
+        el('th', { class: 'hide-sm' }, 'Last sign-in'), el('th', {}, 'Plan'), el('th', {}, ''))),
+      body));
+  }
+
+  function row(u) {
+    const badge = u.plan === 'pro'
+      ? el('span', { class: 'badge pro' }, u.pro_until ? `Pro until ${day(u.pro_until)}` : 'Pro')
+      : u.expired ? el('span', { class: 'badge exp' }, `Ended ${day(u.pro_until)}`) : el('span', { class: 'badge' }, 'Free');
+    const length = el('select', { 'aria-label': 'How long' },
+      el('option', { value: 'forever' }, 'No end'), el('option', { value: 'year' }, '1 year'), el('option', { value: 'month' }, '1 month'));
+    const give = el('button', { class: 'give', onclick: () => setPlan(u, 'pro', length.value, give) }, u.plan === 'pro' ? 'Change' : 'Give Pro');
+    const free = u.plan === 'pro' ? el('button', { class: 'free', onclick: (e) => {
+      // Two clicks: the first only asks.
+      const b = e.currentTarget;
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Sure?'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Make Free'; }, 4000); return; }
+      setPlan(u, 'free', 'forever', b);
+    } }, 'Make Free') : null;
+    return el('tr', {},
+      el('td', {}, el('div', { class: 'email' }, u.email), u.confirmed ? null : el('div', { class: 'muted' }, 'email not confirmed')),
+      el('td', { class: 'hide-sm muted' }, day(u.created_at)),
+      el('td', { class: 'hide-sm muted' }, day(u.last_sign_in_at)),
+      el('td', {}, badge),
+      el('td', {}, el('div', { class: 'acts' }, length, give, free)));
+  }
+
+  async function setPlan(u, plan, length, btn) {
+    btn.disabled = true;
+    try {
+      await api('/api/plan', { method: 'POST', body: JSON.stringify({ user_id: u.id, plan, length }) });
+      toast(plan === 'pro' ? `${u.email} has Pro` : `${u.email} is on Free`);
+      await load();
+    } catch (e) {
+      toast(e.message);
+      btn.disabled = false;
+    }
+  }
+
+  $('#q').addEventListener('input', draw);
+  $('#reload').addEventListener('click', load);
+  document.querySelectorAll('.seg [data-f]').forEach((b) => b.addEventListener('click', () => {
+    filter = b.dataset.f;
+    document.querySelectorAll('.seg [data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    draw();
+  }));
+  load();
+</script>
+</body>
+</html>
