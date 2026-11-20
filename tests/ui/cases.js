@@ -1929,7 +1929,7 @@
     await gateGo();
     const rkShown = document.getElementById('rk')?.textContent || '';
     ok('the key is shown', /^[A-Z0-9]{4}(-[A-Z0-9]{4}){7}$/.test(rkShown), rkShown);
-    ok('and saved, locked', window.__vaultMeta?.rk_wrap_ct === 'rk:' + rkShown.replace(/-/g, ''));
+    ok('it does not count until Done', !window.__vaultMeta?.rk_wrap_ct);
     const rkDoneBtn = () => [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Done');
     ok('Done waits until it is saved somewhere', rkDoneBtn()?.disabled === true);
     draw();
@@ -1938,8 +1938,19 @@
     document.querySelector('.rk-ok input').click();
     ok('ticking "I saved it" allows Done', rkDoneBtn()?.disabled === false);
     rkDoneBtn().click();
-    await wait(60);
+    await wait(80);
     ok('Done closes it', !document.getElementById('rk'));
+    ok('and saves it, locked', window.__vaultMeta?.rk_wrap_ct === 'rk:' + rkShown.replace(/-/g, ''));
+
+    // A key closed without Done is not kept: the earlier one still works.
+    await openFromSettings('vault-recovery');
+    gateFill([TEST_MASTER_PASSWORD]);
+    await gateGo();
+    const unsavedKey = document.getElementById('rk')?.textContent || '';
+    act('Unlock the vault').click();
+    await wait(80);
+    ok('picking something else closes the key screen', !document.getElementById('rk'));
+    ok('and the unsaved key is not kept', unsavedKey && window.__vaultMeta?.rk_wrap_ct === 'rk:' + rkShown.replace(/-/g, ''));
 
     await openFromSettings('vault-password');
     gateFill(['not-it', 'brand-new-master', 'brand-new-master']);
@@ -1984,6 +1995,24 @@
     [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Cancel').click();
     await wait(60);
     ok('Cancel leaves the vault as it was', !window.__vaultReset && !document.querySelector('.gate h3')?.textContent.includes('Reset'));
+
+    // Two vaults unsettled: the account's may hold the real logins.
+    window.__vaultConflict = true;
+    await openVaultPanel(drawResetVault);
+    gateFill(['RESET']);
+    await gateGo();
+    ok('no reset while this device and the account have different vaults', /different vaults/.test(gateMsg()) && !window.__vaultReset, gateMsg());
+    window.__vaultConflict = false;
+    closeVaultPanel();
+    await wait(40);
+
+    // The panel holds the pane against redraws, not against the user.
+    await openFromSettings('vault-password');
+    newNote?.();
+    await wait(120);
+    ok('opening a note lets go of a vault panel', !document.querySelector('#detail [data-vault-panel]'));
+    if (state.editing) await closeEditor();
+    await wait(40);
 
     window.__vaultMeta = null;
     window.__vaultReset = false;
@@ -2858,6 +2887,22 @@
     press('a', { ctrlKey: true });
     await wait(40);
     eq('and again lets go', $$('#list .row.picked').length, 0);
+
+    // Narrowing the list lets go of what it hides: a bulk action reaches only
+    // rows you can see.
+    press('a', { ctrlKey: true });
+    await wait(40);
+    const qBox = document.getElementById('q');
+    qBox.value = 'Grocery';
+    qBox.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(120);
+    eq('a search keeps only the listed rows picked', pickedItems().map((i) => i.row.title), ['Grocery']);
+    ok('and the header counts only those', /1 selected/.test(head()), head());
+    qBox.value = '';
+    qBox.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(120);
+    press('Escape');
+    await wait(40);
 
     // Shift+arrows grow the set from the open row.
     rowFor('Grocery').click();

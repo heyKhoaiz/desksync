@@ -340,6 +340,9 @@ async function resetPassword(email, token, password, verified) {
   if (!verified) {
     const { error } = await sb.auth.verifyOtp({ email, token, type: 'recovery' });
     if (error) return { error: codeError(error) };
+    // The code is spent and the user signed in: reopening the popup must not
+    // bring back a code step that can no longer work.
+    await forgetCode();
   }
   const { error } = await sb.auth.updateUser({ password });
   if (error) return { error: error.message, verified: true };
@@ -595,25 +598,26 @@ function actions() {
 // ---------- Draw ----------
 function draw() {
   buildItems();
-  // A picked row that was deleted or synced away is no longer picked.
-  if (state.sel.size) {
-    const live = new Set(state.items.map(rowKey));
-    for (const k of state.sel) if (!live.has(k)) state.sel.delete(k);
-  }
-  $('#list').classList.toggle('bulk', state.sel.size > 0);
   const q = $('#q');
   const raw = q.value.trim();
   const { text, tags } = parseQuery(raw);
-
-  drawHead(text, tags);
-  drawTagbar(text, tags);
-  drawCompose();
 
   const found = matches(raw);
   // Shown under a type filter too, so a filtered empty list still offers the
   // way to fill it. Hidden once you are searching: then you want results.
   const showActions = !raw;
   state.rows = showActions ? [...actions(), ...found] : found;
+  // Only what is listed stays picked: a row deleted, synced away, or hidden by
+  // the search or a tag is let go, so a bulk action never reaches it unseen.
+  if (state.sel.size) {
+    const live = new Set(found.map(rowKey));
+    for (const k of state.sel) if (!live.has(k)) state.sel.delete(k);
+  }
+  $('#list').classList.toggle('bulk', state.sel.size > 0);
+
+  drawHead(text, tags);
+  drawTagbar(text, tags);
+  drawCompose();
 
   const list = $('#list');
   list.replaceChildren();
@@ -955,7 +959,7 @@ function clearPicks({ redraw = true } = {}) {
 }
 
 // The picked rows as items, in list order.
-const pickedItems = () => state.items.filter((i) => state.sel.has(rowKey(i)));
+const pickedItems = () => state.rows.filter((i) => i.kind !== 'action' && state.sel.has(rowKey(i)));
 
 function bulkBar() {
   const items = pickedItems();
@@ -994,6 +998,9 @@ function bulkDeleteButton(items) {
       return;
     }
     clearTimeout(armed);
+    armed = null;
+    b.classList.remove('armed');
+    b.lastChild.textContent = 'Delete';
     await bulkDelete(items);
   }));
   return b;
@@ -1166,7 +1173,8 @@ function showInPane(item) {
   paneQueue = paneQueue.then(async () => {
     // A vault panel (recovery key, master password) stays until it is closed
     // or the user picks something else; see openVaultPanel.
-    if (state.vaultPanel) return;
+    if (state.vaultPanel && $('#detail [data-vault-panel]')) return;
+    state.vaultPanel = false;
     const editing = state.editing;
     if (editing && item?.kind === 'note' && item.id && editing.id === item.id) return;  // already open
     if (editing) await closeEditor({ redraw: false, keepWidth: item?.kind === 'note' });
@@ -3114,14 +3122,14 @@ function drawVaultGate({ focus = false } = {}) {
       if (p1.value !== p2.value) return (msg.textContent = "Passwords don't match.");
       msg.textContent = 'Creating…';
       const made = await vaultKeys.create(p1.value);
+      await saveVaultMeta(made.meta);
       const { meta, recoveryKey } = await vaultKeys.newRecovery(made.meta, made.key);
-      await saveVaultMeta(meta);
       await vaultCrypto.storeSessionKey(made.key);
       p1.value = ''; p2.value = '';
       state.vaultKey = await vaultCrypto.loadSessionKey();
       state.vaultState = 'open';
       // The key is shown once, before anything else can take the pane.
-      drawRecoveryKey(recoveryKey, { first: true });
+      drawRecoveryKey(recoveryKey, meta, { first: true });
       await loadVault();
       return;
     }
@@ -3205,7 +3213,7 @@ function vaultForm({ title, ic = 'shield', text, fields, button, danger = false,
   $('#detail').replaceChildren(
     el('header', { class: 'd-band plain' },
       el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }), 'Vault')),
-    el('div', { class: 'gate' },
+    el('div', { class: 'gate', 'data-vault-panel': '' },
       el('div', { class: 'ic' }, icon(ic)),
       el('h3', {}, title),
       el('p', {}, text),
@@ -3218,14 +3226,22 @@ function vaultForm({ title, ic = 'shield', text, fields, button, danger = false,
 }
 
 // Shown once. The vault keeps only a copy of the vault key locked by it, so
-// neither DeskSync nor this screen can show it again.
-function drawRecoveryKey(recoveryKey, { first = false } = {}) {
+// neither DeskSync nor this screen can show it again. That copy (`meta`'s rk_*)
+// is saved only on Done: a key the user closed without saving never counts as
+// one they have, and an earlier key keeps working until then.
+function drawRecoveryKey(recoveryKey, meta, { first = false } = {}) {
   state.vaultPanel = true;
   const saved = el('input', { type: 'checkbox' });
-  const done = el('button', { class: 'primary', disabled: true, onclick: () => {
+  const done = el('button', { class: 'primary', disabled: true, onclick: safe(async () => {
+    const now = await store.vaultMeta();
+    if (!now || now.salt !== meta.salt || now.verifier_ct !== meta.verifier_ct) {
+      closeVaultPanel();
+      return toast('The vault changed meanwhile; make a new recovery key in Settings');
+    }
+    await saveVaultMeta({ ...now, rk_salt: meta.rk_salt, rk_wrap_iv: meta.rk_wrap_iv, rk_wrap_ct: meta.rk_wrap_ct });
     closeVaultPanel();
-    toast(first ? 'Vault created' : 'Recovery key saved');
-  } }, 'Done');
+    toast(first ? 'Vault created · recovery key saved' : 'Recovery key saved');
+  }) }, 'Done');
   saved.addEventListener('change', () => { done.disabled = !saved.checked; });
   const download = () => {
     const text = `DeskSync vault recovery key\n\n${recoveryKey}\n\nIt opens your DeskSync vault if you forget the master password.\nKeep it somewhere safe and private. Made ${new Date().toISOString().slice(0, 10)}.\n`;
@@ -3237,10 +3253,10 @@ function drawRecoveryKey(recoveryKey, { first = false } = {}) {
   $('#detail').replaceChildren(
     el('header', { class: 'd-band plain' },
       el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }), 'Vault')),
-    el('div', { class: 'gate' },
+    el('div', { class: 'gate', 'data-vault-panel': '' },
       el('div', { class: 'ic' }, icon('key')),
       el('h3', {}, 'Save your recovery key'),
-      el('p', {}, 'If you forget your master password, this key opens the vault. It is shown only now, and DeskSync cannot recover it for you. Keep it away from this computer: printed, or in another password manager.'),
+      el('p', {}, 'If you forget your master password, this key opens the vault. It is shown only now, and DeskSync cannot recover it for you. Keep it away from this computer: printed, or in another password manager. It counts once you press Done.'),
       el('code', { class: 'rk', id: 'rk' }, recoveryKey),
       el('div', { class: 'rk-actions' },
         el('button', { class: 'ghost', onclick: safe(() => copySecret(recoveryKey, 'Recovery key copied')) }, icon('copy'), 'Copy'),
@@ -3265,8 +3281,7 @@ function drawNewRecovery() {
       let key;
       try { key = await vaultKeys.unlock(meta, cur.value); } catch { cur.select(); return 'Wrong master password.'; }
       const r = await vaultKeys.newRecovery(meta, key);
-      await saveVaultMeta(r.meta);
-      drawRecoveryKey(r.recoveryKey);
+      drawRecoveryKey(r.recoveryKey, r.meta);
     }
   });
 }
@@ -3337,6 +3352,7 @@ async function drawResetVault() {
     fields: [typed], button: 'Delete the logins and reset',
     onGo: async (msg) => {
       if (typed.value.trim().toUpperCase() !== 'RESET') return 'Type RESET to confirm.';
+      if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
       msg.textContent = 'Resetting…';
       try { await sync.resetVault(); }
       catch (e) { return navigator.onLine ? (e.message || 'Could not reset the vault.') : 'You are offline. Connect to reset the vault, so the old one does not come back.'; }

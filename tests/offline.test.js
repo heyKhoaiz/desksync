@@ -45,6 +45,10 @@ function makeCtx({ signedIn = true } = {}) {
         select() { return { maybeSingle() { return answer({ data: structuredClone(server.vault_meta), error: null }); } }; },
         upsert(row) {
           calls.push(['upsert', table, row]);
+          // ctx.__no005: a database without migration 005's wrap columns.
+          if (ctx.__no005 && !ctx.__offline && Object.keys(row).some((k) => /^(pw|rk)_/.test(k))) {
+            return Promise.resolve({ data: null, error: { code: 'PGRST204', message: "Could not find the 'pw_salt' column of 'vault_meta' in the schema cache" } });
+          }
           if (!ctx.__offline) server.vault_meta = { ...row, user_id: 'u1' };
           return answer({ data: null, error: null });
         },
@@ -450,6 +454,49 @@ async function test(name, fn) {
     const m = await run(ctx, `return store.vaultMeta()`);
     assert.strictEqual(m.pw_wrap_ct, 'pc-other');
     assert.strictEqual(m.rk_wrap_ct, 'rc');
+  });
+
+  await test('a recovery key made here offline does not undo a password changed elsewhere', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify({ ...META('mine'), ...WRAP('old') })}); await sync.run();`);
+    // Elsewhere: a new master password reaches the account.
+    ctx.__server.vault_meta = { ...ctx.__server.vault_meta, ...WRAP('elsewhere') };
+    // Here, before syncing: a recovery key, on top of the old password wrap.
+    await run(ctx, `const m = await store.vaultMeta(); await store.setVaultMeta({ ...m, rk_salt: 'rs', rk_wrap_iv: 'ri', rk_wrap_ct: 'rc' });`);
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual(ctx.__server.vault_meta.pw_wrap_ct, 'pc-elsewhere', 'the newer password stays');
+    assert.strictEqual(ctx.__server.vault_meta.rk_wrap_ct, 'rc', 'the recovery key goes up');
+    const m = await run(ctx, `return store.vaultMeta()`);
+    assert.strictEqual(m.pw_wrap_ct, 'pc-elsewhere');
+    assert.strictEqual(m.rk_wrap_ct, 'rc');
+  });
+
+  await test('a password changed here still beats an unchanged one on the server', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify({ ...META('mine'), ...WRAP('old') })}); await sync.run();`);
+    await run(ctx, `const m = await store.vaultMeta(); await store.setVaultMeta({ ...m, ...${JSON.stringify(WRAP('mine'))} }); await sync.run();`);
+    assert.strictEqual(ctx.__server.vault_meta.pw_wrap_ct, 'pc-mine');
+  });
+
+  await test('a vault reset on another device is cleared here too', async () => {
+    const ctx = makeCtx();
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify(META('mine'))}); await db.insert('vault_items', { id: 'v1', iv: 'a', ciphertext: 'b' }); await sync.run();`);
+    await run(ctx, `await db.insert('vault_items', { id: 'v2', iv: 'c', ciphertext: 'd' })`);   // edited offline, old key
+    ctx.__server.vault_meta = null;
+    ctx.__server.vault_items = [];
+    await run(ctx, `await sync.run()`);
+    assert.strictEqual(await run(ctx, `return store.vaultMeta()`), null);
+    assert.strictEqual((await run(ctx, `return db.list('vault_items')`)).length, 0);
+    assert.strictEqual(ctx.__server.vault_items.length, 0, 'no old-key item uploaded');
+  });
+
+  await test('without migration 005, vault changes wait and everything else syncs', async () => {
+    const ctx = makeCtx();
+    ctx.__no005 = true;
+    await run(ctx, `await store.setVaultMeta(${JSON.stringify({ ...META('mine'), ...WRAP('new') })}); await db.insert('notes', { id: 'n1' }); await sync.run();`);
+    assert.strictEqual(ctx.__server.notes.length, 1, 'notes still sync');
+    assert.strictEqual(ctx.__server.vault_meta, null);
+    assert.strictEqual((await run(ctx, `return store.rawVaultMeta()`))._dirty, true, 'kept to send later');
   });
 
   await test('resetting the vault clears it on the server, then here', async () => {

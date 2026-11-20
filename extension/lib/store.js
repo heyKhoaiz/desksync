@@ -216,6 +216,15 @@ const store = {
     // none, and its row is left exactly as before, so it still syncs to a
     // database without migration 005.
     for (const k of VAULT_WRAP_FIELDS) if (meta[k] != null) row[k] = meta[k];
+    // _base: the wraps as the server last had them, so sync can tell which of
+    // them this device changed since (see client.js, mergeWraps).
+    const pick = (m) => Object.fromEntries(VAULT_WRAP_FIELDS.filter((k) => m?.[k] != null).map((k) => [k, m[k]]));
+    if (fromServer) row._base = pick(meta);
+    else {
+      const { [VAULT_META_KEY]: prev } = await chrome.storage.local.get(VAULT_META_KEY);
+      const same = prev && prev.salt === meta.salt && prev.verifier_ct === meta.verifier_ct;
+      row._base = !same ? {} : prev._base ?? (prev._synced ? pick(prev) : {});
+    }
     await chrome.storage.local.set({ [VAULT_META_KEY]: row });
   },
   // Forgets this device's vault: its settings and every item. Sync's
