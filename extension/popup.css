@@ -110,6 +110,12 @@ input, textarea, select { font: inherit; color: inherit; }
 .signin-actions .ghost { border: 1px solid var(--line); color: var(--fg-2); }
 .signin-actions .ghost:hover { background: var(--hover); color: var(--fg); }
 .signin-form .msg { margin: 0; font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
+/* The code step, after Create account. */
+.code-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.code-note b { color: var(--fg); font-weight: 600; word-break: break-all; }
+.signin-form .code-in { font: 500 16px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .3em; text-align: center; height: 40px; }
+.code-other { align-self: flex-start; padding: 0; font-size: 11.5px; color: var(--fg-2); text-decoration: underline; }
+.code-other:hover { color: var(--fg); }
 .msg { min-height: 16px; margin: 10px 0 0; font-size: 11.5px; color: var(--danger); }
 
 /* ---------- App shell ---------- */
@@ -648,6 +654,21 @@ input, textarea, select { font: inherit; color: inherit; }
 .gate input:focus { border-color: var(--link); }
 .gate button.primary { width: 100%; height: 34px; border-radius: 999px; background: var(--ink);
   color: var(--on-ink); font-size: 12.5px; font-weight: 500; }
+.gate button.primary:disabled { opacity: .4; cursor: default; }
+.gate button.primary.danger { background: var(--danger); color: var(--card); }
+.gate .msg { margin: 8px 0 0; font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
+.gate .gate-link { align-self: center; margin-top: 6px; padding: 2px 4px; font-size: 11.5px; color: var(--fg-2); text-decoration: underline; }
+.gate .gate-link:hover { color: var(--fg); }
+/* The recovery key, shown once. */
+.gate .rk { display: block; margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--hover);
+  font: 600 13px/1.6 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; overflow-wrap: normal; word-break: normal; user-select: all; }
+.gate .rk-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.gate .rk-actions button { flex: 1; height: 30px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2);
+  font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.gate .rk-actions button:hover { background: var(--hover); color: var(--fg); }
+.gate .rk-ok { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; font-size: 12px; cursor: pointer; }
+.gate .rk-ok input { width: auto; height: auto; margin: 0; }
+.gate input.rk-in { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
 
 /* ---------- Full-width screens: settings, trash ---------- */
 .screen { flex: 1; min-width: 0; background: var(--card); border-radius: var(--r);
@@ -801,3 +822,28 @@ html.view-tab .mid { width: 360px; }
 .review-ask .ra-yes { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .review-ask .ra-no { color: var(--fg-2); }
 .review-ask .ra-no:hover { background: var(--hover); color: var(--fg); }
+
+/* ---------- Picking several rows ----------
+   The box sits where the row's dot is and takes its place on hover and while
+   anything is picked, so the list does not shift sideways. */
+.row .pick { display: none; flex: none; width: 16px; height: 16px; margin-top: 1px; border-radius: 4px;
+  border: 1.5px solid var(--fg-2); color: transparent; align-items: center; justify-content: center; }
+.row .pick .i { width: 11px; height: 11px; }
+.row:not(.act):hover .pick, .list.bulk .row:not(.act) .pick { display: inline-flex; }
+.row:not(.act):hover .pick ~ .bul, .row:not(.act):hover .pick ~ .fav,
+.list.bulk .row:not(.act) .bul, .list.bulk .row:not(.act) .fav { display: none; }
+.row .pick[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.row.picked, .row.picked:hover { background: var(--sel); }
+.row.picked .row-acts { background: linear-gradient(90deg, transparent, var(--sel) 16px); }
+
+.listhead .bulk-x { align-self: center; width: 22px; height: 22px; border-radius: 6px; color: var(--fg-2); font-size: 12px; }
+.listhead .bulk-x:hover { background: var(--hover); color: var(--fg); }
+.listhead .bulk-acts { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.listhead .bulk-b { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px;
+  border-radius: 6px; font-size: 11.5px; color: var(--fg-2); }
+.listhead .bulk-b .i { width: 13px; height: 13px; }
+.listhead .bulk-b .hash { font-weight: 600; }
+.listhead .bulk-b:hover { background: var(--hover); color: var(--fg); }
+.listhead .bulk-b.danger.armed { background: var(--danger); color: var(--card); }
+.listhead .bulk-tag { width: 90px; height: 22px; padding: 0 6px; font: inherit; font-size: 11.5px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }

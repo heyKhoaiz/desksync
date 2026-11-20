@@ -1821,8 +1821,174 @@
     await wait(60);
     ok('a failed sign-in says why, and the app stays usable',
       /Invalid login/.test(signin.querySelector('.msg').textContent), signin.querySelector('.msg').textContent);
+
+    // Creating an account: the email carries a code, typed in here.
+    signin.querySelector('input[type=password]').value = 'a-good-password';
+    signin.querySelector('.ghost').click();
+    await wait(60);
+    ok('Create account asks for the emailed code', !!signin.querySelector('.code-in'));
+    ok('and names the address it went to', /me@example\.com/.test(signin.querySelector('.code-note')?.textContent || ''));
+    signin.querySelector('.code-in').value = '123456';
+    signin.querySelector('.primary').click();
+    await wait(60);
+    ok('a wrong code says so', /wrong or has expired/.test(signin.querySelector('.msg').textContent),
+      signin.querySelector('.msg').textContent);
+    signin.querySelector('.ghost').click();
+    await wait(60);
+    ok('Send a new code sends one', window.__codeResent === true && /Sent/.test(signin.querySelector('.msg').textContent));
+
+    // The popup closes while the user reads the email; the code step must survive.
+    setScreen(null);
+    await wait(30);
+    setScreen('settings');
+    await wait(60);
+    const signinAgain = document.getElementById('signin');
+    ok('reopening goes straight back to the code', !!signinAgain.querySelector('.code-in'));
+    signinAgain.querySelector('.code-other').click();
+    await wait(60);
+    ok('Use a different email returns to the sign-in form', !!signinAgain.querySelector('input[type=email]') && !signinAgain.querySelector('.code-in'));
+    ok('and forgets the pending address', !(await chrome.storage.local.get('pendingCode')).pendingCode);
+
+    // Forgot password: a code, then a new password.
+    const forgotBtn = () => [...document.querySelectorAll('#signin button')].find((b) => b.textContent === 'Forgot password?');
+    signinAgain.querySelector('input[type=email]').value = '';
+    forgotBtn().click();
+    await wait(60);
+    ok('Forgot password asks for the email first', /Enter your email/.test(signinAgain.querySelector('.msg').textContent),
+      signinAgain.querySelector('.msg').textContent);
+    signinAgain.querySelector('input[type=email]').value = 'me@example.com';
+    forgotBtn().click();
+    await wait(60);
+    ok('then sends a reset code to it', window.__resetFor === 'me@example.com');
+    ok('and asks for the code and a new password',
+      !!signinAgain.querySelector('.code-in') && !!signinAgain.querySelector('.new-pass'));
+    ok('it says the vault master password is not reset', /not the vault/.test(signinAgain.querySelector('.code-note').textContent));
+    signinAgain.querySelector('.code-in').value = '111111';
+    signinAgain.querySelector('.new-pass').value = 'short';
+    signinAgain.querySelector('.primary').click();
+    await wait(40);
+    ok('a short new password is refused before sending', /8 or more/.test(signinAgain.querySelector('.msg').textContent));
+    signinAgain.querySelector('.new-pass').value = 'a-new-password';
+    signinAgain.querySelector('.primary').click();
+    await wait(60);
+    ok('a wrong reset code says so', /wrong or has expired/.test(signinAgain.querySelector('.msg').textContent)
+      && !window.__updateUserCalls, signinAgain.querySelector('.msg').textContent);
+
+    setScreen(null);
+    await wait(30);
+    setScreen('settings');
+    await wait(60);
+    const resetAgain = document.getElementById('signin');
+    ok('reopening goes back to the reset step', !!resetAgain.querySelector('.new-pass'));
+    resetAgain.querySelector('.code-in').value = '654321';
+    resetAgain.querySelector('.new-pass').value = 'a-new-password';
+    resetAgain.querySelector('.primary').click();
+    await wait(60);
+    ok('a refused new password says why', /should be different/.test(resetAgain.querySelector('.msg').textContent));
+    ok('and the used code is not asked for again', resetAgain.querySelector('.code-in').disabled);
+    resetAgain.querySelector('.primary').click();
+    await wait(60);
+    eq('a retry sets the password without the code', window.__updateUserCalls, 2);
+    resetAgain.querySelector('.code-other').click();
+    await wait(40);
+    ok('Back to sign in forgets the reset', !(await chrome.storage.local.get('pendingCode')).pendingCode
+      && !!resetAgain.querySelector('input[type=email]'));
     setScreen(null);
     window.__signedOut = false;
+
+    // ================= VAULT RECOVERY =================
+    group('vault recovery');
+    const gateMsg = () => document.querySelector('.gate .msg')?.textContent || '';
+    const gateFill = (values) => {
+      const inputs = [...document.querySelectorAll('.gate input:not([type=checkbox])')];
+      values.forEach((v, i) => { inputs[i].value = v; });
+    };
+    const gateGo = async () => { document.querySelector('.gate .primary').click(); await wait(120); };
+    const openFromSettings = async (id) => {
+      setScreen('settings');
+      await wait(40);
+      document.getElementById(id).click();
+      await wait(150);
+    };
+    window.__vaultMeta = null;
+    await lockVault();
+    await wait(40);
+
+    setScreen('settings');
+    await wait(40);
+    ok('settings warns while there is no recovery key', /No recovery key yet/.test(document.querySelector('.sc-body').textContent));
+    eq('and offers to make one', document.getElementById('vault-recovery')?.textContent, 'Make one');
+    ok('and to change the master password', !!document.getElementById('vault-password'));
+
+    await openFromSettings('vault-recovery');
+    ok('making a key asks for the master password first', /Make a recovery key/.test(document.querySelector('.gate h3')?.textContent || ''));
+    gateFill(['not-it']);
+    await gateGo();
+    ok('a wrong master password makes no key', /Wrong master password/.test(gateMsg()) && !window.__vaultMeta?.rk_wrap_ct, gateMsg());
+    gateFill([TEST_MASTER_PASSWORD]);
+    await gateGo();
+    const rkShown = document.getElementById('rk')?.textContent || '';
+    ok('the key is shown', /^[A-Z0-9]{4}(-[A-Z0-9]{4}){7}$/.test(rkShown), rkShown);
+    ok('and saved, locked', window.__vaultMeta?.rk_wrap_ct === 'rk:' + rkShown.replace(/-/g, ''));
+    const rkDoneBtn = () => [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Done');
+    ok('Done waits until it is saved somewhere', rkDoneBtn()?.disabled === true);
+    draw();
+    await wait(60);
+    ok('a list redraw does not take the key off the screen', document.getElementById('rk')?.textContent === rkShown);
+    document.querySelector('.rk-ok input').click();
+    ok('ticking "I saved it" allows Done', rkDoneBtn()?.disabled === false);
+    rkDoneBtn().click();
+    await wait(60);
+    ok('Done closes it', !document.getElementById('rk'));
+
+    await openFromSettings('vault-password');
+    gateFill(['not-it', 'brand-new-master', 'brand-new-master']);
+    await gateGo();
+    ok('changing the master password checks the current one', /Wrong master password/.test(gateMsg()), gateMsg());
+    gateFill([TEST_MASTER_PASSWORD, 'brand-new-master', 'brand-new-mastr']);
+    await gateGo();
+    ok('and that the new one was typed twice the same', /don't match/.test(gateMsg()), gateMsg());
+    gateFill([TEST_MASTER_PASSWORD, 'brand-new-master', 'brand-new-master']);
+    await gateGo();
+    eq('the new master password is set', window.__vaultMeta?.pw_wrap_ct, 'pw:brand-new-master');
+    ok('and the recovery key kept', window.__vaultMeta?.rk_wrap_ct === 'rk:' + rkShown.replace(/-/g, ''));
+
+    // Forgot it: the recovery key, then a new master password.
+    await lockVault();
+    act('Unlock the vault').click();
+    await wait(60);
+    const vaultForgot = [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Forgot master password?');
+    ok('the lock screen offers a way back in', !!vaultForgot);
+    vaultForgot.click();
+    await wait(80);
+    gateFill(['ABCD-0000-0000-0000-0000-0000-0000-0000', 'remembered-now', 'remembered-now']);
+    await gateGo();
+    ok('a wrong recovery key is refused', /doesn't open this vault/.test(gateMsg()) && state.vaultState !== 'open', gateMsg());
+    gateFill([rkShown.toLowerCase().replace(/-/g, ' '), 'remembered-now', 'remembered-now']);
+    await gateGo();
+    eq('the recovery key, typed loosely, opens the vault', state.vaultState, 'open');
+    eq('with the new master password set', window.__vaultMeta?.pw_wrap_ct, 'pw:remembered-now');
+
+    // No recovery key at all: the only way out is to start again.
+    window.__vaultMeta = null;
+    await lockVault();
+    act('Unlock the vault').click();
+    await wait(60);
+    [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Forgot master password?').click();
+    await wait(80);
+    ok('with no recovery key, forgot offers a reset', /Reset the vault/.test(document.querySelector('.gate h3')?.textContent || ''));
+    ok('and says what it deletes', /saved login/.test(document.querySelector('.gate p')?.textContent || ''));
+    gateFill(['reset please']);
+    await gateGo();
+    ok('a reset needs RESET typed', /Type RESET/.test(gateMsg()) && !window.__vaultReset, gateMsg());
+    [...document.querySelectorAll('.gate button')].find((b) => b.textContent === 'Cancel').click();
+    await wait(60);
+    ok('Cancel leaves the vault as it was', !window.__vaultReset && !document.querySelector('.gate h3')?.textContent.includes('Reset'));
+
+    window.__vaultMeta = null;
+    window.__vaultReset = false;
+    setScreen(null);
+    await wait(40);
 
     // ================= TWO VAULTS =================
     group('two vaults');
@@ -2654,6 +2820,112 @@
     ok('an old note with no tasks is not', !rowTitles().includes('Old rich-text note'), rowTitles());
     document.querySelector('.rail [data-f=all]').click();
     await wait(40);
+
+    // ================= PICKING SEVERAL =================
+    group('picking several rows');
+    await reset();
+    const ctrlClick = (text, opts = { ctrlKey: true }) =>
+      rowFor(text).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...opts }));
+    const picked = () => $$('#list .row.picked .t').map((e) => e.textContent);
+    rowFor('Grocery').click();
+    await wait(80);
+    ctrlClick('Migrate to Manifest V3');
+    await wait(40);
+    eq('Ctrl+click picks a row and keeps the open one', picked().sort(), ['Grocery', 'Migrate to Manifest V3'].sort());
+    ok('the header says how many are picked', /2 selected/.test(head()), head());
+    ok('picked rows show their box', $$('#list .row.picked .pick[aria-pressed=true]').length === 2);
+    ctrlClick('Migrate to Manifest V3');
+    await wait(40);
+    eq('Ctrl+click again lets it go', picked(), ['Grocery']);
+    press('Escape');
+    await wait(40);
+    eq('Escape lets go of everything', picked(), []);
+    ok('and the header is the list header again', !/selected/.test(head()), head());
+
+    // Shift+click: a run, from the last row picked.
+    const pickable = $$('#list .row:not(.act)');
+    pickable[0].click();
+    await wait(60);
+    pickable[2].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+    await wait(40);
+    eq('Shift+click picks the rows between', $$('#list .row.picked').length, 3);
+    press('Escape');
+
+    // Ctrl+A, with an empty search box only.
+    press('a', { ctrlKey: true });
+    await wait(40);
+    eq('Ctrl+A picks everything listed', $$('#list .row.picked').length, $$('#list .row:not(.act)').length);
+    press('a', { ctrlKey: true });
+    await wait(40);
+    eq('and again lets go', $$('#list .row.picked').length, 0);
+
+    // Shift+arrows grow the set from the open row.
+    rowFor('Grocery').click();
+    await wait(60);
+    press('ArrowDown', { shiftKey: true });
+    await wait(40);
+    press('ArrowDown', { shiftKey: true });
+    await wait(40);
+    eq('Shift+Down twice picks three rows', $$('#list .row.picked').length, 3);
+    press('ArrowUp', { shiftKey: true });
+    await wait(40);
+    eq('Shift+Up takes one back', $$('#list .row.picked').length, 2);
+    press('Escape');
+
+    // Pin several at once.
+    document.querySelector('.rail [data-f=note]').click();
+    await wait(60);
+    rowFor('Grocery').click();
+    await wait(60);
+    ctrlClick('Supabase RLS gotcha');
+    await wait(40);
+    $$('.listhead .bulk-b').find((b) => /^Pin/.test(b.textContent)).click();
+    await wait(200);
+    ok('Pin pins every picked note', note('Grocery').pinned && note('Supabase RLS gotcha').pinned,
+      [note('Grocery').pinned, note('Supabase RLS gotcha').pinned]);
+
+    // Tag several at once.
+    $$('.listhead .bulk-b').find((b) => /Tag/.test(b.textContent)).click();
+    const tagIn = document.querySelector('.listhead .bulk-tag');
+    ok('Tag opens a box for the tag', !!tagIn);
+    tagIn.value = '#Batch';
+    tagIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await settled();
+    ok('the tag lands on every picked note', note('Grocery').tags.includes('batch') && note('Supabase RLS gotcha').tags.includes('batch'),
+      [note('Grocery').tags, note('Supabase RLS gotcha').tags]);
+    ok('and leaves the rest alone', !note('Launch checklist').tags.includes('batch'));
+
+    // Delete asks on the button, then deletes them all, with Undo.
+    const delBtn = () => $$('.listhead .bulk-b.danger')[0];
+    delBtn().click();
+    await wait(20);
+    ok('the first click on Delete asks', /Delete 2\?/.test(delBtn().textContent), delBtn().textContent);
+    ok('and deletes nothing yet', !!note('Grocery'));
+    delBtn().click();
+    await wait(250);
+    ok('the second click deletes every picked note', !note('Grocery') && !note('Supabase RLS gotcha'));
+    ok('they leave the list', !rowTitles().includes('Grocery') && !rowTitles().includes('Supabase RLS gotcha'), rowTitles());
+    ok('and nothing is picked any more', !/selected/.test(head()), head());
+    document.querySelector('#toast .toast-act').click();
+    await wait(250);
+    ok('Undo brings them all back', !!note('Grocery') && rowTitles().includes('Grocery') && rowTitles().includes('Supabase RLS gotcha'), rowTitles());
+
+    // Changing the type lets go of what was picked.
+    rowFor('Grocery').click();
+    await wait(60);
+    ctrlClick('Launch checklist');
+    await wait(40);
+    document.querySelector('.rail [data-f=all]').click();
+    await wait(60);
+    eq('switching type lets go of the picks', $$('#list .row.picked').length, 0);
+    // A plain click is a new choice.
+    rowFor('Grocery').click();
+    await wait(60);
+    ctrlClick('Launch checklist');
+    await wait(40);
+    rowFor('Migrate to Manifest V3').click();
+    await wait(60);
+    eq('a plain click lets go of the picks', $$('#list .row.picked').length, 0);
 
     // ================= LAYOUT =================
     group('layout');

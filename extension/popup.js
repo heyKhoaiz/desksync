@@ -26,6 +26,9 @@ const state = {
   vaultKey: null, vaultState: 'locked',     // 'setup' | 'locked' | 'open'
   items: [], rows: [], active: 0, vEditing: null, vDraft: null,
   filter: 'all', screen: null, editing: null,
+  // Rows picked for a bulk action, by rowKey, and where a Shift range starts.
+  // Separate from `active`, which is the one row open in the pane.
+  sel: new Set(), selAnchor: null,
   tagColors: {},
   tabId: null, tabHost: null, tabOrigin: null, windowId: null,
   // Free or Pro, and its limits (PLANS in lib/client.js). needsPro: signed in
@@ -279,15 +282,70 @@ async function loadPlan(refresh = false) {
 
 // Sign in or create an account, from Settings. Reloading runs boot() again,
 // which adopts this device's data into the account and syncs.
+// Returns an error message, 'code' when the email needs confirming first, or
+// nothing once signed in.
 async function signIn(mode, email, password) {
   if (!isConfigured) return 'Sync is not set up in this build: run make ext with a Supabase project.';
   const { data, error } = mode === 'signup'
-    ? await sb.auth.signUp({ email, password })
+    // Older emails carried a link instead of a code; it lands on the site.
+    ? await sb.auth.signUp({ email, password, options: { emailRedirectTo: 'https://desksync.org/confirmed.html' } })
     : await sb.auth.signInWithPassword({ email, password });
+  if (error?.code === 'email_not_confirmed' || /not confirmed/i.test(error?.message || '')) {
+    await sb.auth.resend({ type: 'signup', email }).catch(() => {});
+    return pendingCode(email, 'signup');
+  }
   if (error) return error.message;
-  if (mode === 'signup' && !data.session) return 'Check your email to confirm, then sign in.';
+  if (mode === 'signup' && !data.session) return pendingCode(email, 'signup');
   location.reload();
   return null;
+}
+
+// Emailed codes: 'signup' confirms a new account, 'recovery' resets its
+// password. The popup closes when the user goes to read the email, so the
+// address it is waiting on is kept, and the code step comes back when it
+// reopens. Supabase's codes last an hour by default.
+const CODE_TTL = 60 * 60 * 1000;
+async function pendingCode(email, kind) {
+  await chrome.storage.local.set({ pendingCode: { email, kind, at: Date.now() } });
+  return 'code';
+}
+async function waitingCode() {
+  const { pendingCode: p } = await chrome.storage.local.get('pendingCode');
+  return p && Date.now() - p.at < CODE_TTL ? p : null;
+}
+const forgetCode = () => chrome.storage.local.remove('pendingCode');
+const codeError = (error) => (/expired|invalid/i.test(error.message)
+  ? 'That code is wrong or has expired. Check it, or send a new one.' : error.message);
+
+async function confirmCode(email, token) {
+  const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
+  if (error) return codeError(error);
+  await forgetCode();
+  location.reload();
+  return null;
+}
+
+// Supabase answers the same whether or not the address has an account, so
+// this cannot be used to find out who signed up.
+async function sendResetCode(email) {
+  if (!isConfigured) return 'Sync is not set up in this build: run make ext with a Supabase project.';
+  const { error } = await sb.auth.resetPasswordForEmail(email);
+  if (error) return error.message;
+  return pendingCode(email, 'recovery');
+}
+
+// The code signs the user in; the new password is then set on that session.
+// `verified` skips the code on a retry, since a code works only once.
+async function resetPassword(email, token, password, verified) {
+  if (!verified) {
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'recovery' });
+    if (error) return { error: codeError(error) };
+  }
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) return { error: error.message, verified: true };
+  await forgetCode();
+  location.reload();
+  return {};
 }
 
 // A draft the last popup could not finish writing. Opening the popup is the
@@ -537,6 +595,12 @@ function actions() {
 // ---------- Draw ----------
 function draw() {
   buildItems();
+  // A picked row that was deleted or synced away is no longer picked.
+  if (state.sel.size) {
+    const live = new Set(state.items.map(rowKey));
+    for (const k of state.sel) if (!live.has(k)) state.sel.delete(k);
+  }
+  $('#list').classList.toggle('bulk', state.sel.size > 0);
   const q = $('#q');
   const raw = q.value.trim();
   const { text, tags } = parseQuery(raw);
@@ -664,6 +728,7 @@ function drawCompose() {
 
 function drawHead(text, tags) {
   const head = $('#listhead');
+  if (state.sel.size) return head.replaceChildren(...bulkBar());
   const T = TYPES[state.filter];
   const parts = [filterLabel(state.filter), ...tags.map((t) => '#' + t)].filter(Boolean);
   const where = parts.length ? parts.join(' ') : (text ? 'Results' : 'Everything');
@@ -680,7 +745,7 @@ function drawHead(text, tags) {
     narrowed && n && state.filter !== 'vault'
       // Labelled, like Clear beside it: a list icon alone did not say "copy".
       ? el('button', { class: 'copy-list', id: 'copy-list', title: 'Copy what is listed here, as text to paste anywhere',
-          onclick: safe(copyList) }, icon('copy'), 'Copy')
+          onclick: safe(() => copyList()) }, icon('copy'), 'Copy')
       : null,
     narrowed
       ? el('button', { class: 'clear', id: 'clear-filter', title: 'Clear the search, tags and type: show everything',
@@ -743,11 +808,20 @@ function rowFor(item, idx, query) {
   const when = item.when ? ago(item.when) : '';
   const sub = [item.sub, when].filter(Boolean).join(' · ');
 
+  const picked = state.sel.has(rowKey(item));
   return el('li', {
-    class: ['row', 'k-' + item.kind, item.read ? 'read' : '', item.kind === 'vault' ? 'locked-able' : ''].filter(Boolean).join(' '),
+    class: ['row', 'k-' + item.kind, item.read ? 'read' : '', item.kind === 'vault' ? 'locked-able' : '', picked ? 'picked' : ''].filter(Boolean).join(' '),
     id: 'r' + idx, role: 'option', 'aria-selected': 'false', 'data-i': idx,
-    onclick: () => clickRow(idx)
+    onclick: (e) => clickRow(idx, e)
   },
+    // A box to tick, shown on hover and while anything is picked. Ctrl or
+    // Shift with a click does the same without aiming for it.
+    el('button', {
+      class: 'pick', 'data-pick': '', 'aria-pressed': String(picked),
+      'aria-label': (picked ? 'Unselect ' : 'Select ') + item.title,
+      title: picked ? 'Unselect' : 'Select (Ctrl+click, Shift+click for a range)',
+      onclick: (e) => { e.stopPropagation(); e.shiftKey ? pickRange(idx) : togglePick(idx); }
+    }, icon('check')),
     rowMark(item, T),
     el('span', { class: 'body' },
       el('span', { class: 't' + (item.mono ? ' mono' : '') }, ...highlight(item.title, query)),
@@ -827,16 +901,195 @@ function rowActions(item) {
   return el('span', { class: 'row-acts' }, ...kids);
 }
 
+// ---------- Picking several rows ----------
+// Pick rows with Ctrl/⌘+click, Shift+click or the box at the start of a row,
+// or with Shift+arrows and Ctrl+A in the search box. While anything is picked,
+// the list's header turns into what you can do to all of them at once.
+const pickable = (r) => r && r.kind !== 'action';
+
+function togglePick(i, { withActive = false } = {}) {
+  const item = state.rows[i];
+  if (!pickable(item)) return;
+  // The first Ctrl+click keeps the row already open: you are adding to it,
+  // as in a file manager, not swapping it for another.
+  if (withActive && !state.sel.size && i !== state.active && pickable(state.rows[state.active])) {
+    state.sel.add(rowKey(state.rows[state.active]));
+  }
+  const k = rowKey(item);
+  state.sel.has(k) ? state.sel.delete(k) : state.sel.add(k);
+  state.selAnchor = k;
+  state.picked = true;
+  draw();
+}
+
+// Everything between the anchor (the last row picked, or the open one) and
+// row i. `move` puts the cursor on i too, for Shift+arrows.
+function pickRange(i, { move = false } = {}) {
+  const rows = state.rows;
+  let a = state.selAnchor ? rows.findIndex((r) => rowKey(r) === state.selAnchor) : -1;
+  if (a < 0) a = pickable(rows[state.active]) ? state.active : i;
+  if (!state.selAnchor) state.selAnchor = rowKey(rows[a]);
+  const [lo, hi] = a < i ? [a, i] : [i, a];
+  // A range replaces the last range, the way Shift does in any list.
+  state.sel = new Set(rows.slice(lo, hi + 1).filter(pickable).map(rowKey));
+  state.picked = true;
+  if (move) state.active = i;
+  draw();
+  if (move) setActive(i, true);
+}
+
+function pickAll() {
+  const all = state.rows.filter(pickable);
+  if (!all.length) return;
+  // Pressed again with everything already picked, it lets go.
+  if (all.every((r) => state.sel.has(rowKey(r)))) return clearPicks();
+  state.sel = new Set(all.map(rowKey));
+  state.picked = true;
+  draw();
+}
+
+function clearPicks({ redraw = true } = {}) {
+  state.sel.clear();
+  state.selAnchor = null;
+  if (redraw) draw();
+}
+
+// The picked rows as items, in list order.
+const pickedItems = () => state.items.filter((i) => state.sel.has(rowKey(i)));
+
+function bulkBar() {
+  const items = pickedItems();
+  const pinnable = items.filter((i) => i.kind === 'note' || i.kind === 'clip');
+  const links = items.filter((i) => i.kind === 'link');
+  const copyable = items.filter((i) => i.kind !== 'vault' && !i.secret);
+  const allPinned = pinnable.length && pinnable.every((i) => i.pinned);
+  const allRead = links.length && links.every((i) => i.row.is_read);
+  const btn = (label, title, fn, ...kids) =>
+    el('button', { class: 'bulk-b', title, onclick: safe(fn) }, ...kids, label);
+
+  return [
+    el('button', { class: 'bulk-x', title: 'Unselect all (Esc)', 'aria-label': 'Unselect all', onclick: () => clearPicks() }, '✕'),
+    el('span', { class: 'where', 'aria-live': 'polite' }, `${items.length} selected`),
+    el('span', { class: 'bulk-acts' },
+      pinnable.length ? btn(allPinned ? 'Unpin' : 'Pin', allPinned ? 'Unpin the selected notes and clips' : 'Pin the selected notes and clips',
+        () => bulkPin(pinnable, !allPinned), icon('pin')) : null,
+      links.length ? btn(allRead ? 'Unread' : 'Read', allRead ? 'Mark the selected links unread' : 'Mark the selected links read',
+        () => bulkRead(links, !allRead), icon(allRead ? 'undo' : 'check')) : null,
+      btn('Tag', 'Add a tag to everything selected', (e) => bulkTagInput(e.currentTarget), el('span', { class: 'hash' }, '#')),
+      copyable.length ? btn('Copy', 'Copy the selected items as a list', () => copyList(copyable), icon('copy')) : null,
+      bulkDeleteButton(items))
+  ].filter(Boolean);
+}
+
+// Delete asks once, on the button itself: a second click within a few seconds.
+// A dialog would block the popup, and Undo cannot bring back a clip's text.
+function bulkDeleteButton(items) {
+  const b = el('button', { class: 'bulk-b danger', title: 'Delete everything selected' }, icon('trash'), 'Delete');
+  let armed = null;
+  b.addEventListener('click', safe(async () => {
+    if (!armed) {
+      b.lastChild.textContent = `Delete ${items.length}?`;
+      b.classList.add('armed');
+      armed = setTimeout(() => { armed = null; b.classList.remove('armed'); b.lastChild.textContent = 'Delete'; }, 3000);
+      return;
+    }
+    clearTimeout(armed);
+    await bulkDelete(items);
+  }));
+  return b;
+}
+
+const reloadKinds = (items) => {
+  const kinds = new Set(items.map((i) => i.kind));
+  return Promise.all([...kinds].map((k) => ({ note: loadNotes, link: loadLater, clip: loadClips, vault: loadVault })[k]()));
+};
+
+async function bulkDelete(items) {
+  // The note open in the editor is saved and closed first, or its next
+  // autosave would write it back.
+  if (state.editing?.id && items.some((i) => i.kind === 'note' && i.id === state.editing.id)) {
+    await closeEditor({ redraw: false });
+  }
+  if (items.some((i) => rowKey(i) === state.activeKey)) state.activeKey = null;
+  for (const i of items) {
+    if (i.kind === 'clip') await db.remove('clips', i.id, { content: '', source_url: null });
+    else await db.remove(TYPES[i.kind].table, i.id);
+  }
+  clearPicks({ redraw: false });
+  await reloadKinds(items);
+  loadTrash();
+  // Clips lose their text on delete, so only the rest can come back.
+  const back = items.filter((i) => i.kind !== 'clip');
+  const msg = `Deleted ${plural(items.length, 'item')}`;
+  if (!back.length) return toast(msg);
+  toast(msg, { label: 'Undo', run: async () => {
+    for (const i of back) await db.restore(TYPES[i.kind].table, i.id);
+    await reloadKinds(back);
+    loadTrash();
+    toast(back.length === items.length ? 'Restored' : `Restored ${plural(back.length, 'item')} · clips cannot come back`);
+  } });
+}
+
+async function bulkPin(items, on) {
+  for (const i of items) if (i.id && !!i.pinned !== on) await db.update(TYPES[i.kind].table, i.id, { pinned: on });
+  await reloadKinds(items);
+  toast(`${on ? 'Pinned' : 'Unpinned'} ${plural(items.length, 'item')}`);
+}
+
+async function bulkRead(items, on) {
+  for (const i of items) if (!!i.row.is_read !== on) await db.update('read_later', i.id, { is_read: on });
+  await loadLater();
+  toast(`Marked ${plural(items.length, 'link')} ${on ? 'read' : 'unread'}`);
+}
+
+// A small box in place of the Tag button: type a tag, Enter adds it to every
+// picked row. Vault rows need the vault open, as they do one at a time.
+function bulkTagInput(button) {
+  const input = el('input', { class: 'bulk-tag', type: 'text', placeholder: 'tag', 'aria-label': 'Tag to add', spellcheck: 'false' });
+  button.replaceWith(input);
+  input.focus();
+  let done = false;
+  const finish = safe(async (go) => {
+    if (done) return;
+    done = true;
+    const t = go ? normalizeTag(input.value.replace(/^#/, '')) : null;
+    if (!t) { draw(); $('#q').focus(); return; }
+    const items = pickedItems().filter((i) => !i.tags.includes(t));
+    for (const i of items) await saveTags(i, [...i.tags, t]);
+    await reloadKinds(items);
+    draw();
+    // The open note takes its tags through the draft (see saveTags), so its
+    // tag row is redrawn here, as one tag added from the editor would be.
+    if (state.editing && state.draft && items.some((i) => i.kind === 'note' && i.id === state.editing.id)) drawEditor();
+    $('#q').focus();
+    toast(items.length ? `Tagged ${plural(items.length, 'item')} #${t}` : `All already tagged #${t}`);
+  });
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 // Hovering a row only highlights it (CSS :hover). The pane changes when a row
 // is chosen, by a click or the arrow keys, as in any mail or file list. It
 // used to follow the mouse, so the pane jumped while you moved towards a
 // button, and the hovered row looked just like the selected one.
-async function clickRow(i) {
+async function clickRow(i, e) {
+  // Ctrl/⌘ picks one more row, Shift a run of them: the open row stays as it is.
+  if (e && state.rows[i]?.kind !== 'action') {
+    if (e.ctrlKey || e.metaKey) return togglePick(i, { withActive: true });
+    if (e.shiftKey) return pickRange(i);
+  }
+  // A plain click is a new choice, so whatever was picked is let go.
+  if (state.sel.size) clearPicks({ redraw: false });
   // Awaited: closeEditor clears state.editing when its save resolves, so firing
   // it and carrying on would wipe the session we are about to open. Clicking
   // "New note" with an editor already open lost the new note that way.
   if (state.editing) await closeEditor();
   if (state.vEditing) closeVaultEditor();        // an unsaved login is discarded, by design
+  state.vaultPanel = false;
   state.picked = true;
   setActive(i, false);
   // An action row is a button, not something to inspect: clicking it runs it.
@@ -911,6 +1164,9 @@ let paneQueue = Promise.resolve();
 
 function showInPane(item) {
   paneQueue = paneQueue.then(async () => {
+    // A vault panel (recovery key, master password) stays until it is closed
+    // or the user picks something else; see openVaultPanel.
+    if (state.vaultPanel) return;
     const editing = state.editing;
     if (editing && item?.kind === 'note' && item.id && editing.id === item.id) return;  // already open
     if (editing) await closeEditor({ redraw: false, keepWidth: item?.kind === 'note' });
@@ -926,10 +1182,12 @@ function showInPane(item) {
 // list shows the new filter. (This used to happen by accident, when the redraw
 // opened the highlighted row in the note's place.)
 const setFilter = safe(async (f) => {
+  state.vaultPanel = false;
   if (state.editing) await closeEditor({ redraw: false });
   if (state.vEditing) closeVaultEditor();
   if (state.screen) setScreen(null);
   state.filter = f; state.active = 0;
+  clearPicks({ redraw: false });
   draw();
   $('#q').focus();
 });
@@ -1284,8 +1542,7 @@ function insertIntoPage(text, { formatted = false } = {}) {
 // What is in the list right now, as text you can paste into a doc, an email or
 // a brief. Links keep their URL and your note on them; secret clips and vault
 // items are never included.
-async function copyList() {
-  const items = matches($('#q').value.trim());
+async function copyList(items = matches($('#q').value.trim())) {
   const indent = (t) => t.trim().replace(/\n/g, '\n  ');
   const lines = items.map((i) => {
     if (i.kind === 'link') return `- ${i.title}\n  ${i.row.url}` + (i.row.note?.trim() ? `\n  ${indent(i.row.note)}` : '');
@@ -2803,9 +3060,12 @@ async function importPasswords(csv) {
 // ---------- Vault ----------
 const checkVault = safe(async () => {
   state.vaultKey = await vaultCrypto.loadSessionKey();
+  state.vaultRecovery = vaultKeys.hasRecovery(await store.vaultMeta());
   if (state.vaultKey) { state.vaultState = 'open'; return loadVault(); }
   state.vaultConflict = !!(await store.vaultConflict());
-  state.vaultState = (await store.vaultMeta()) ? 'locked' : 'setup';
+  const meta = await store.vaultMeta();
+  state.vaultRecovery = vaultKeys.hasRecovery(meta);
+  state.vaultState = meta ? 'locked' : 'setup';
   state.vault = [];
   draw();
 });
@@ -2853,27 +3113,30 @@ function drawVaultGate({ focus = false } = {}) {
       if (p1.value.length < 10) return (msg.textContent = 'Use at least 10 characters.');
       if (p1.value !== p2.value) return (msg.textContent = "Passwords don't match.");
       msg.textContent = 'Creating…';
-      const salt = b64.from(vaultCrypto.randomBytes(16));
-      const key = await vaultCrypto.deriveKey(p1.value, salt);
-      const v = await vaultCrypto.encrypt(key, VAULT_VERIFIER);
-      await store.setVaultMeta({ salt, iterations: 600000, verifier_iv: v.iv, verifier_ct: v.ciphertext });
-      sync.soon();
-      await vaultCrypto.storeSessionKey(key);
-    } else {
-      msg.textContent = 'Unlocking…';
-      const meta = await store.vaultMeta();
-      if (!meta) { state.vaultState = 'setup'; return drawVaultGate({ focus: true }); }
-      const key = await vaultCrypto.deriveKey(p1.value, meta.salt, meta.iterations);
-      try {
-        if ((await vaultCrypto.decrypt(key, meta.verifier_iv, meta.verifier_ct)) !== VAULT_VERIFIER) throw 0;
-      } catch { msg.textContent = 'Wrong master password.'; p1.select(); return; }
-      await vaultCrypto.storeSessionKey(key);
+      const made = await vaultKeys.create(p1.value);
+      const { meta, recoveryKey } = await vaultKeys.newRecovery(made.meta, made.key);
+      await saveVaultMeta(meta);
+      await vaultCrypto.storeSessionKey(made.key);
+      p1.value = ''; p2.value = '';
+      state.vaultKey = await vaultCrypto.loadSessionKey();
+      state.vaultState = 'open';
+      // The key is shown once, before anything else can take the pane.
+      drawRecoveryKey(recoveryKey, { first: true });
+      await loadVault();
+      return;
     }
-    p1.value = ''; if (p2) p2.value = '';
+    msg.textContent = 'Unlocking…';
+    const meta = await store.vaultMeta();
+    if (!meta) { state.vaultState = 'setup'; return drawVaultGate({ focus: true }); }
+    let key;
+    try { key = await vaultKeys.unlock(meta, p1.value); }
+    catch { msg.textContent = 'Wrong master password.'; p1.select(); return; }
+    await vaultCrypto.storeSessionKey(key);
+    p1.value = '';
     state.vaultKey = await vaultCrypto.loadSessionKey();
     state.vaultState = 'open';
     await loadVault();
-    toast(setup ? 'Vault created' : 'Vault unlocked');
+    toast(vaultKeys.hasRecovery(meta) ? 'Vault unlocked' : 'Vault unlocked · make a recovery key in Settings');
   });
 
   for (const input of [p1, p2].filter(Boolean)) {
@@ -2888,13 +3151,203 @@ function drawVaultGate({ focus = false } = {}) {
       el('div', { class: 'ic' }, icon(setup ? 'shield' : 'lock')),
       el('h3', {}, setup ? 'Set up your vault' : 'Vault locked'),
       el('p', {}, setup
-        ? 'Pick a master password. It never leaves this device and cannot be recovered — if you forget it, the vault is lost.'
-        : 'Your master password unlocks every saved login for this session. It is not stored anywhere and cannot be recovered.'),
+        ? 'Pick a master password. It never leaves this device. Next you get a recovery key: the only way back in if you forget the password.'
+        : 'Your master password unlocks every saved login for this session. It is not stored anywhere.'),
       p1, p2,
       el('button', { class: 'primary', onclick: go }, setup ? 'Create vault' : 'Unlock'),
-      msg)
+      msg,
+      setup ? null : el('button', { class: 'gate-link', onclick: safe(drawForgotMaster) }, 'Forgot master password?'))
   );
   if (focus) p1.focus();
+}
+
+// ---------- Vault: recovery key and master password ----------
+// lib/crypto.js (vaultKeys) has the format. These panels sit in the right pane
+// like the gate, but a list redraw (a sync, a captured clip) must not wipe them:
+// the recovery key is shown once, and a half-typed password would be lost. So
+// state.vaultPanel holds the pane until the panel is closed, or the user picks
+// a row or a filter.
+async function openVaultPanel(drawPanel) {
+  setScreen(null);
+  await setFilter('vault');
+  state.picked = true;
+  await paneQueue;
+  await drawPanel();
+}
+function closeVaultPanel() {
+  state.vaultPanel = false;
+  draw();
+}
+async function saveVaultMeta(meta) {
+  await store.setVaultMeta(meta);
+  state.vaultRecovery = vaultKeys.hasRecovery(meta);
+  sync.soon();
+}
+// Two different vaults (this device and the account) must be settled first:
+// changing either one's password here would leave the other behind.
+const VAULT_CONFLICT_MSG = 'This device and your account have different vaults. Choose one in Settings first.';
+
+const pwField = (placeholder) => el('input', { type: 'password', placeholder, 'aria-label': placeholder.replace(/ \(.*\)$/, ''), autocomplete: 'off' });
+
+// A gate-style form. `onGo` returns an error to show, or nothing once it has
+// moved on.
+function vaultForm({ title, ic = 'shield', text, fields, button, danger = false, onGo, after = [] }) {
+  state.vaultPanel = true;
+  const msg = el('p', { class: 'msg', role: 'alert' });
+  const go = safe(async () => {
+    msg.textContent = '';
+    const err = await onGo(msg);
+    if (err) msg.textContent = err;
+  });
+  for (const f of fields) {
+    f.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  }
+  $('#detail').replaceChildren(
+    el('header', { class: 'd-band plain' },
+      el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }), 'Vault')),
+    el('div', { class: 'gate' },
+      el('div', { class: 'ic' }, icon(ic)),
+      el('h3', {}, title),
+      el('p', {}, text),
+      ...fields,
+      el('button', { class: 'primary' + (danger ? ' danger' : ''), onclick: go }, button),
+      msg,
+      ...after,
+      el('button', { class: 'gate-link', onclick: closeVaultPanel }, 'Cancel')));
+  fields[0]?.focus();
+}
+
+// Shown once. The vault keeps only a copy of the vault key locked by it, so
+// neither DeskSync nor this screen can show it again.
+function drawRecoveryKey(recoveryKey, { first = false } = {}) {
+  state.vaultPanel = true;
+  const saved = el('input', { type: 'checkbox' });
+  const done = el('button', { class: 'primary', disabled: true, onclick: () => {
+    closeVaultPanel();
+    toast(first ? 'Vault created' : 'Recovery key saved');
+  } }, 'Done');
+  saved.addEventListener('change', () => { done.disabled = !saved.checked; });
+  const download = () => {
+    const text = `DeskSync vault recovery key\n\n${recoveryKey}\n\nIt opens your DeskSync vault if you forget the master password.\nKeep it somewhere safe and private. Made ${new Date().toISOString().slice(0, 10)}.\n`;
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = el('a', { href: url, download: 'desksync-recovery-key.txt' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+  $('#detail').replaceChildren(
+    el('header', { class: 'd-band plain' },
+      el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }), 'Vault')),
+    el('div', { class: 'gate' },
+      el('div', { class: 'ic' }, icon('key')),
+      el('h3', {}, 'Save your recovery key'),
+      el('p', {}, 'If you forget your master password, this key opens the vault. It is shown only now, and DeskSync cannot recover it for you. Keep it away from this computer: printed, or in another password manager.'),
+      el('code', { class: 'rk', id: 'rk' }, recoveryKey),
+      el('div', { class: 'rk-actions' },
+        el('button', { class: 'ghost', onclick: safe(() => copySecret(recoveryKey, 'Recovery key copied')) }, icon('copy'), 'Copy'),
+        el('button', { class: 'ghost', onclick: download }, 'Download')),
+      el('label', { class: 'rk-ok' }, saved, 'I saved it somewhere safe'),
+      done));
+}
+
+function drawNewRecovery() {
+  const cur = pwField('Master password');
+  const replacing = state.vaultRecovery;
+  vaultForm({
+    title: replacing ? 'Replace your recovery key' : 'Make a recovery key', ic: 'key',
+    text: replacing
+      ? 'Your current recovery key stops working, and a new one is shown once. Enter your master password.'
+      : 'It opens the vault if you forget your master password. Enter your master password to make one.',
+    fields: [cur], button: replacing ? 'Make a new key' : 'Make the key',
+    onGo: async (msg) => {
+      if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
+      msg.textContent = 'Making…';
+      const meta = await store.vaultMeta();
+      let key;
+      try { key = await vaultKeys.unlock(meta, cur.value); } catch { cur.select(); return 'Wrong master password.'; }
+      const r = await vaultKeys.newRecovery(meta, key);
+      await saveVaultMeta(r.meta);
+      drawRecoveryKey(r.recoveryKey);
+    }
+  });
+}
+
+function drawChangeMaster() {
+  const cur = pwField('Current master password');
+  const p1 = pwField('New master password (min 10)');
+  const p2 = pwField('Repeat new master password');
+  vaultForm({
+    title: 'Change master password', ic: 'lock',
+    text: 'Your saved logins stay as they are. Other devices ask for the new password once they sync.',
+    fields: [cur, p1, p2], button: 'Change password',
+    onGo: async (msg) => {
+      if (p1.value.length < 10) return 'Use at least 10 characters.';
+      if (p1.value !== p2.value) return "The new passwords don't match.";
+      if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
+      msg.textContent = 'Changing…';
+      const meta = await store.vaultMeta();
+      let key;
+      try { key = await vaultKeys.unlock(meta, cur.value); } catch { cur.select(); return 'Wrong master password.'; }
+      await saveVaultMeta(await vaultKeys.setPassword(meta, key, p1.value));
+      closeVaultPanel();
+      toast('Master password changed');
+    }
+  });
+}
+
+async function drawForgotMaster() {
+  if (!vaultKeys.hasRecovery(await store.vaultMeta())) return drawResetVault();
+  const rk = el('input', { type: 'text', placeholder: 'Recovery key', 'aria-label': 'Recovery key',
+    autocomplete: 'off', spellcheck: 'false', class: 'rk-in' });
+  const p1 = pwField('New master password (min 10)');
+  const p2 = pwField('Repeat new master password');
+  vaultForm({
+    title: 'Forgot master password', ic: 'key',
+    text: 'Enter your recovery key and choose a new master password. Your saved logins stay as they are.',
+    fields: [rk, p1, p2], button: 'Open the vault',
+    onGo: async (msg) => {
+      if (!rk.value.trim()) return 'Enter your recovery key.';
+      if (p1.value.length < 10) return 'Use at least 10 characters.';
+      if (p1.value !== p2.value) return "The new passwords don't match.";
+      if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
+      msg.textContent = 'Checking…';
+      const meta = await store.vaultMeta();
+      let key;
+      try { key = await vaultKeys.unlockWithRecovery(meta, rk.value); }
+      catch { rk.select(); return "That recovery key doesn't open this vault."; }
+      await saveVaultMeta(await vaultKeys.setPassword(meta, key, p1.value));
+      await vaultCrypto.storeSessionKey(key);
+      state.vaultPanel = false;
+      state.vaultKey = await vaultCrypto.loadSessionKey();
+      state.vaultState = 'open';
+      await loadVault();
+      toast('Vault open · use your new master password from now on');
+    },
+    after: [el('button', { class: 'gate-link', onclick: safe(drawResetVault) }, 'Lost the recovery key too?')]
+  });
+}
+
+// The last resort: nobody can open a vault without its master password or
+// recovery key, DeskSync included. Starting over deletes its logins.
+async function drawResetVault() {
+  const n = (await db.list('vault_items')).length;
+  const typed = el('input', { type: 'text', placeholder: 'Type RESET', 'aria-label': 'Type RESET to confirm', autocomplete: 'off' });
+  vaultForm({
+    title: 'Reset the vault', ic: 'trash', danger: true,
+    text: `Without the master password or a recovery key, nobody can open this vault, DeskSync included. Resetting deletes its ${plural(n, 'saved login')} from this device${state.email ? ' and your account' : ''}, so you can start a new vault. Notes, links and clips are not touched.`,
+    fields: [typed], button: 'Delete the logins and reset',
+    onGo: async (msg) => {
+      if (typed.value.trim().toUpperCase() !== 'RESET') return 'Type RESET to confirm.';
+      msg.textContent = 'Resetting…';
+      try { await sync.resetVault(); }
+      catch (e) { return navigator.onLine ? (e.message || 'Could not reset the vault.') : 'You are offline. Connect to reset the vault, so the old one does not come back.'; }
+      await vaultCrypto.lock();
+      Object.assign(state, { vaultKey: null, vault: [], vaultState: 'setup', vaultRecovery: false, vaultConflict: false, vaultPanel: false });
+      draw();
+      await paneQueue;
+      drawVaultGate({ focus: true });
+      toast('Vault reset · set up a new one');
+    }
+  });
 }
 
 // Does a saved item belong to the site in the front tab?
@@ -3175,7 +3628,9 @@ function drawSettings() {
       el('div', { class: 'sc-sec' }, 'Vault'),
       ...vaultConflictRows,
       row(state.vaultState === 'open' ? 'Unlocked' : state.vaultState === 'setup' ? 'Not set up yet' : 'Locked',
-        'The master password cannot be recovered.',
+        state.vaultState === 'setup' || state.vaultRecovery
+          ? 'Forget the master password, and the recovery key opens it.'
+          : 'No recovery key yet: a forgotten master password would lose every saved login.',
         el('button', {
           class: 'act',
           onclick: safe(async () => {
@@ -3191,6 +3646,14 @@ function drawSettings() {
             }
           })
         }, state.vaultState === 'open' ? 'Lock now' : state.vaultState === 'setup' ? 'Set up' : 'Unlock')),
+      ...(state.vaultState === 'setup' ? [] : [
+        row('Recovery key', state.vaultRecovery
+          ? 'Opens the vault if you forget the master password. A new one retires the old.'
+          : 'None yet. Make one, and keep it somewhere safe.',
+        el('button', { class: 'act', id: 'vault-recovery', onclick: safe(() => openVaultPanel(drawNewRecovery)) },
+          state.vaultRecovery ? 'Replace' : 'Make one')),
+        row('Master password', 'Change it here. Your saved logins stay as they are.',
+          el('button', { class: 'act', id: 'vault-password', onclick: safe(() => openVaultPanel(drawChangeMaster)) }, 'Change'))]),
       row('Import passwords', 'A CSV file exported from Chrome (Settings → Passwords → Export), Edge, Firefox or another password manager. Logins already here are skipped. Delete the file afterwards: it is not encrypted.',
         (() => {
           const file = el('input', { type: 'file', accept: '.csv,text/csv', class: 'hidden', 'aria-label': 'Choose a password export (CSV)' });
@@ -3328,24 +3791,120 @@ function signInForm() {
   const pass = el('input', { type: 'password', placeholder: 'Password (min 8)', minlength: '8',
     autocomplete: 'current-password', 'aria-label': 'Password' });
   const msg = el('p', { class: 'msg', role: 'alert' });
+  const form = el('div', { class: 'signin-form' });
+  const row = el('div', { class: 'sc-row signin', id: 'signin' },
+    el('span', { class: 'lab' }, el('b', {}, 'Sign in to sync'),
+      el('span', {}, 'With Pro, keeps this browser, your other Chrome profiles and your phone in step. What is here now goes into the account.')),
+    form);
+  const keys = (input, onEnter) => input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') onEnter(e);
+  });
+  const codeInput = () => el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '10',
+    placeholder: '6-digit code', 'aria-label': 'Code from the email', class: 'code-in' });
+  const digits = (input) => input.value.replace(/\D/g, '');
+  const startOver = safe(async () => { await forgetCode(); credentialsStep(); email.focus(); });
+
   const go = (mode) => safe(async (e) => {
     e?.preventDefault?.();
     msg.textContent = '';
     if (!email.value.trim() || pass.value.length < 8) { msg.textContent = 'Enter an email and a password of 8 or more characters.'; return; }
     msg.textContent = mode === 'signup' ? 'Creating…' : 'Signing in…';
-    msg.textContent = (await signIn(mode, email.value.trim(), pass.value)) || '';
+    const result = await signIn(mode, email.value.trim(), pass.value);
+    if (result === 'code') codeStep(email.value.trim());
+    else msg.textContent = result || '';
   });
-  for (const input of [email, pass]) {
-    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') go('signin')(e); });
-  }
-  return el('div', { class: 'sc-row signin', id: 'signin' },
-    el('span', { class: 'lab' }, el('b', {}, 'Sign in to sync'),
-      el('span', {}, 'With Pro, keeps this browser, your other Chrome profiles and your phone in step. What is here now goes into the account.')),
-    el('div', { class: 'signin-form' }, email, pass,
+  const forgot = safe(async () => {
+    const address = email.value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) { msg.textContent = 'Enter your email above, then press Forgot password.'; email.focus(); return; }
+    msg.textContent = 'Sending…';
+    const result = await sendResetCode(address);
+    if (result === 'code') resetStep(address);
+    else msg.textContent = result || '';
+  });
+  keys(email, go('signin'));
+  keys(pass, go('signin'));
+
+  const credentialsStep = () => {
+    msg.textContent = '';
+    pass.value = '';
+    form.replaceChildren(email, pass,
       el('div', { class: 'signin-actions' },
         el('button', { class: 'primary', onclick: go('signin') }, 'Sign in'),
         el('button', { class: 'ghost', onclick: go('signup') }, 'Create account')),
-      msg));
+      el('button', { class: 'code-other', onclick: forgot }, 'Forgot password?'),
+      msg);
+  };
+
+  // Creating an account, second step: the code from the email.
+  const codeStep = (address) => {
+    const code = codeInput();
+    const confirm = safe(async (e) => {
+      e?.preventDefault?.();
+      if (digits(code).length < 6) { msg.textContent = 'Enter the code from the email.'; return; }
+      msg.textContent = 'Checking…';
+      msg.textContent = (await confirmCode(address, digits(code))) || '';
+    });
+    const resend = safe(async () => {
+      msg.textContent = 'Sending…';
+      const { error } = await sb.auth.resend({ type: 'signup', email: address });
+      if (!error) await pendingCode(address, 'signup');
+      msg.textContent = error ? error.message : 'Sent. Check your inbox, and spam.';
+    });
+    keys(code, confirm);
+    msg.textContent = '';
+    form.replaceChildren(
+      el('p', { class: 'code-note' }, 'We emailed a code to ', el('b', {}, address), '. Enter it to finish creating your account.'),
+      code,
+      el('div', { class: 'signin-actions' },
+        el('button', { class: 'primary', onclick: confirm }, 'Confirm'),
+        el('button', { class: 'ghost', onclick: resend }, 'Send a new code')),
+      el('button', { class: 'code-other', onclick: startOver }, 'Use a different email'),
+      msg);
+    code.focus();
+  };
+
+  // Forgot password: the emailed code, and the new password, together.
+  const resetStep = (address) => {
+    const code = codeInput();
+    const fresh = el('input', { type: 'password', placeholder: 'New password (min 8)', minlength: '8',
+      autocomplete: 'new-password', 'aria-label': 'New password', class: 'new-pass' });
+    let verified = false;
+    const save = safe(async (e) => {
+      e?.preventDefault?.();
+      if (!verified && digits(code).length < 6) { msg.textContent = 'Enter the code from the email.'; return; }
+      if (fresh.value.length < 8) { msg.textContent = 'The new password needs 8 or more characters.'; return; }
+      msg.textContent = 'Saving…';
+      const result = await resetPassword(address, digits(code), fresh.value, verified);
+      if (result.verified) { verified = true; code.disabled = true; }
+      msg.textContent = result.error || '';
+    });
+    const resend = safe(async () => {
+      msg.textContent = 'Sending…';
+      const result = await sendResetCode(address);
+      msg.textContent = result === 'code' ? 'Sent. Check your inbox, and spam.' : result;
+    });
+    keys(code, () => fresh.focus());
+    keys(fresh, save);
+    msg.textContent = '';
+    form.replaceChildren(
+      el('p', { class: 'code-note' }, 'If ', el('b', {}, address),
+        ' has an account, we emailed it a code. Enter it with a new password. This resets the account password, not the vault’s master password.'),
+      code, fresh,
+      el('div', { class: 'signin-actions' },
+        el('button', { class: 'primary', onclick: save }, 'Set password'),
+        el('button', { class: 'ghost', onclick: resend }, 'Send a new code')),
+      el('button', { class: 'code-other', onclick: startOver }, 'Back to sign in'),
+      msg);
+    code.focus();
+  };
+
+  credentialsStep();
+  waitingCode().then((p) => {
+    if (p?.kind === 'signup') codeStep(p.email);
+    else if (p?.kind === 'recovery') resetStep(p.email);
+  });
+  return row;
 }
 
 async function exportAll() {
@@ -3513,7 +4072,22 @@ qEl.addEventListener('input', () => { state.active = 0; draw(); });
 // last row rather than skipping one.
 qEl.addEventListener('keydown', (e) => {
   const n = state.rows.length;
-  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n) state.picked = true;
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n) { state.picked = true; state.vaultPanel = false; }
+  // Shift+arrows grow the picked set from the row you are on, as in a file list.
+  if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && n) {
+    e.preventDefault();
+    const from = state.active < 0 ? 0 : state.active;
+    const to = Math.min(n - 1, Math.max(0, from + (e.key === 'ArrowDown' ? 1 : -1)));
+    if (state.selAnchor == null || !state.sel.size) state.selAnchor = state.rows[from]?.kind === 'action' ? null : rowKey(state.rows[from]);
+    return pickRange(to, { move: true });
+  }
+  // Ctrl+A picks everything listed, but only with the search box empty: with
+  // text in it, it selects the text as it always has.
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !qEl.value) {
+    e.preventDefault();
+    return pickAll();
+  }
+  if (e.key === 'Escape' && state.sel.size) { e.preventDefault(); return clearPicks(); }
   if (e.key === 'ArrowDown' && n) { e.preventDefault(); setActive(state.active < 0 ? 0 : (state.active + 1) % n, true); }
   else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setActive(state.active < 0 ? n - 1 : (state.active - 1 + n) % n, true); }
   else if (e.key === 'Enter') { e.preventDefault(); openActive(e); }

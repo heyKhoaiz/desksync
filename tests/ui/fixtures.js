@@ -97,7 +97,18 @@ const sb = {
   auth: {
     async getSession() { return { data: { session: { user: { id: 'u1', email: 'khoaiz@example.com' } } } }; },
     async signOut() { window.__signedOutCalled = true; },
-    async signInWithPassword() { return { data: { session: {} }, error: { message: 'Invalid login credentials' } }; }
+    async signInWithPassword() { return { data: { session: {} }, error: { message: 'Invalid login credentials' } }; },
+    // A new account waits for the emailed code: no session yet.
+    async signUp() { return { data: { session: null }, error: null }; },
+    // 654321 is the right code; any other is refused.
+    async verifyOtp({ token }) {
+      return token === '654321' ? { data: {}, error: null } : { data: {}, error: { message: 'Token has expired or is invalid' } };
+    },
+    async resend() { window.__codeResent = true; return { error: null }; },
+    async resetPasswordForEmail(email) { window.__resetFor = email; return { data: {}, error: null }; },
+    // Kept failing so the test never reaches the reload a success does.
+    async updateUser() { window.__updateUserCalls = (window.__updateUserCalls || 0) + 1;
+      return { data: {}, error: { message: 'New password should be different from the old password.' } }; }
   },
   channel() { return { on() { return this; }, subscribe() {} }; },
   from(table) {
@@ -122,8 +133,8 @@ const localStore = {
   async adopt(uid) { window.__adopted = uid; },
   async clear() { window.__erased = true; },
   async migrate() {},
-  async vaultMeta() { return window.__vaultSetUp === false ? null : VAULT_META; },
-  async setVaultMeta() { window.__vaultSetUp = true; },
+  async vaultMeta() { return window.__vaultSetUp === false ? null : (window.__vaultMeta || VAULT_META); },
+  async setVaultMeta(m) { window.__vaultSetUp = true; window.__vaultMeta = structuredClone(m); },
   async vaultConflict() { return window.__vaultConflict ? VAULT_META : null; },
   async exportAll() { return { app: 'desksync', version: 1, tables: structuredClone(DATA) }; },
   async importAll() { return { counts: { notes: 1 }, skippedVault: 0 }; }
@@ -143,7 +154,8 @@ const sync = {
   async pending() { return 0; },
   async run() { return { synced: 0, pulled: false, pending: 0, vaultConflict: !!window.__vaultConflict }; },
   soon() {},
-  async resolveVault(keep) { window.__resolvedVault = keep; window.__vaultConflict = false; }
+  async resolveVault(keep) { window.__resolvedVault = keep; window.__vaultConflict = false; },
+  async resetVault() { window.__vaultReset = true; window.__vaultSetUp = false; window.__vaultMeta = null; }
 };
 
 // The draft stash is real enough to assert against: it is just
@@ -183,6 +195,31 @@ const vaultCrypto = {
     return decodeURIComponent(escape(atob(ct)));
   },
   generatePassword() { return 'generated-password'; }
+};
+
+// Vault keys (lib/crypto.js, tested for real in tests/vaultkeys.test.js). Here
+// a "wrap" is just the secret written down, so tests can see what was set.
+// Before any wrap, "demo" opens the vault, as vaultCrypto.deriveKey above.
+const vaultKeys = {
+  WRONG_SECRET: 'wrong-secret',
+  hasRecovery(meta) { return !!meta?.rk_wrap_ct; },
+  normalize(k) { return String(k).toUpperCase().replace(/[^0-9A-Z]/g, ''); },
+  async create(pw) {
+    return { key: 'KEY', meta: { ...VAULT_META, pw_wrap_ct: 'pw:' + pw } };
+  },
+  async unlock(meta, pw) {
+    if (meta.pw_wrap_ct ? meta.pw_wrap_ct !== 'pw:' + pw : pw !== 'demo') throw new Error('wrong-secret');
+    return 'KEY';
+  },
+  async unlockWithRecovery(meta, rk) {
+    if (meta.rk_wrap_ct !== 'rk:' + this.normalize(rk)) throw new Error('wrong-secret');
+    return 'KEY';
+  },
+  async setPassword(meta, key, pw) { return { ...meta, pw_wrap_ct: 'pw:' + pw }; },
+  async newRecovery(meta) {
+    const recoveryKey = 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-' + String(Math.floor(Math.random() * 9000) + 1000);
+    return { recoveryKey, meta: { ...meta, rk_wrap_ct: 'rk:' + this.normalize(recoveryKey) } };
+  }
 };
 
 // db
