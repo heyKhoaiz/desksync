@@ -268,6 +268,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .row-acts button .i { width: 15px; height: 15px; }
 .row-acts button:hover { background: var(--line); color: var(--fg); }
 .row-acts button[data-row-act="delete"]:hover { color: var(--danger); }
+/* While they show, the text ends in "…" before them instead of running
+   underneath, where half-faded letters read as garbage. Room for two buttons. */
+.row:not(.act):hover .body, .row:not(.act)[aria-selected="true"] .body,
+.row:not(.act):focus-within .body, .row.picked .body { padding-right: 46px; }
 /* The row has to be the positioning context, and tall enough not to clip them. */
 .row { position: relative; }
 /* An action row is a button already; it needs none of this. */
@@ -852,6 +856,16 @@ html.view-tab .mid { width: 360px; }
 .listhead .bulk-b .hash { font-weight: 600; }
 .listhead .bulk-b:hover { background: var(--hover); color: var(--fg); }
 .listhead .bulk-b.danger.armed { background: var(--danger); color: var(--card); }
+/* One line however narrow the list: "1 selected" never wraps, and below 380px
+   the buttons keep their icons and drop their words (the title says what each
+   does). An armed Delete keeps its words, since they ask the question. */
+.listhead { container-type: inline-size; }
+.listhead .where { white-space: nowrap; }
+.listhead .bulk-b { flex-shrink: 0; white-space: nowrap; }
+@container (max-width: 380px) {
+  .listhead .bulk-b:not(.armed) .bl { display: none; }
+  .listhead .bulk-b { padding: 0 5px; }
+}
 .listhead .bulk-tag { width: 90px; height: 22px; padding: 0 6px; font: inherit; font-size: 11.5px;
   border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 

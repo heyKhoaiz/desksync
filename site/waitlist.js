@@ -12,9 +12,9 @@
   // Until the extension is published there is no store page to link to.
   const install = document.getElementById('install');
   if (!cfg.store || cfg.store.includes('{{')) {
-    install.removeAttribute('href');
-    install.classList.add('pending');
-    install.textContent = 'Coming soon to the Chrome Web Store';
+    // The download is the way in until then: the store button steps aside.
+    install.style.display = 'none';
+    document.getElementById('download').classList.remove('ghost');
   }
 
   const say = (text, kind = '') => { msg.textContent = text; msg.className = 'msg ' + kind; };

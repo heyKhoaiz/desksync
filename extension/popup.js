@@ -205,7 +205,9 @@ const colourFg = (row) => `var(--n-${noteColour(row)}-fg)`;
 
 // ---------- Auth ----------
 // The source folder ships with placeholders; `make ext` fills them in for dist/extension.
-const isConfigured = !DESKSYNC_CONFIG.SUPABASE_URL.includes('YOUR-PROJECT');
+// The free download has no account at all: nothing to sign in to, no server.
+const FREE_BUILD = DESKSYNC_CONFIG.FREE_BUILD === true;
+const isConfigured = !FREE_BUILD && !DESKSYNC_CONFIG.SUPABASE_URL.includes('YOUR-PROJECT');
 
 // The app opens straight away, signed in or not: everything is on this device.
 // An account only adds sync, and is set up from Settings.
@@ -972,7 +974,7 @@ function bulkBar() {
   const allPinned = pinnable.length && pinnable.every((i) => i.pinned);
   const allRead = links.length && links.every((i) => i.row.is_read);
   const btn = (label, title, fn, ...kids) =>
-    el('button', { class: 'bulk-b', title, onclick: safe(fn) }, ...kids, label);
+    el('button', { class: 'bulk-b', title, 'aria-label': label, onclick: safe(fn) }, ...kids, el('span', { class: 'bl' }, label));
 
   return [
     el('button', { class: 'bulk-x', title: 'Unselect all (Esc)', 'aria-label': 'Unselect all', onclick: () => clearPicks() }, '✕'),
@@ -991,13 +993,15 @@ function bulkBar() {
 // Delete asks once, on the button itself: a second click within a few seconds.
 // A dialog would block the popup, and Undo cannot bring back a clip's text.
 function bulkDeleteButton(items) {
-  const b = el('button', { class: 'bulk-b danger', title: 'Delete everything selected' }, icon('trash'), 'Delete');
+  const b = el('button', { class: 'bulk-b danger', title: 'Delete everything selected', 'aria-label': 'Delete' },
+    icon('trash'), el('span', { class: 'bl' }, 'Delete'));
   let armed = null;
   b.addEventListener('click', safe(async () => {
     if (!armed) {
       b.lastChild.textContent = `Delete ${items.length}?`;
+      b.setAttribute('aria-label', `Delete ${items.length}? Click again to confirm`);
       b.classList.add('armed');
-      armed = setTimeout(() => { armed = null; b.classList.remove('armed'); b.lastChild.textContent = 'Delete'; }, 3000);
+      armed = setTimeout(() => { armed = null; b.classList.remove('armed'); b.lastChild.textContent = 'Delete'; b.setAttribute('aria-label', 'Delete'); }, 3000);
       return;
     }
     clearTimeout(armed);
@@ -1685,7 +1689,7 @@ function drawWelcome() {
         k('Alt+Shift+S', 'save the tab you are on'),
         k('Alt+Shift+K', 'new note, from any page'),
         k('ds ␣ …', 'search from the address bar')),
-      el('p', { class: 'muted' }, 'Want the same notes in your other Chrome profiles and on your phone? ',
+      FREE_BUILD ? null : el('p', { class: 'muted' }, 'Want the same notes in your other Chrome profiles and on your phone? ',
         el('button', { class: 'link-btn', onclick: () => setScreen('settings') }, 'Sign in to sync'),
         ' — optional, and what is here now comes with you.'))
   );
@@ -1710,6 +1714,11 @@ function shortcutUrl(raw) {
     return /^https?:$/.test(u.protocol) && u.hostname.includes('.') ? u.href : null;
   } catch { return null; }
 }
+// A tab title cut to fit under a tile: "Issues · org/repo · GitHub" → "Issues".
+function clipTitle(t) {
+  const s = String(t).split(/\s+[|·•–—-]\s+/)[0].trim() || String(t).trim();
+  return s.length > 20 ? s.slice(0, 19).trimEnd() + '…' : s;
+}
 // A tile's label: the name given, else the site without www. and .com.
 const shortcutName = (s) => {
   if (s.title?.trim()) return s.title.trim();
@@ -1723,8 +1732,12 @@ async function drawShortcuts() {
   // The list may have been picked from while storage was read.
   if (state.picked || state.editing || state.filter !== 'all') return;
   pane.replaceChildren();
-  const here = state.tabUrl ? new URL(state.tabUrl).origin + '/' : null;
-  const haveHere = here && list.some((s) => new URL(s.url).origin === new URL(here).origin);
+  // + keeps the page you are on (less its #hash), not just the site, so two
+  // pages of one site can each have a tile.
+  const here = state.tabUrl ? state.tabUrl.replace(/#.*$/, '') : null;
+  const haveHere = here && list.some((s) => s.url === here);
+  // Named after the tab, so tiles from one site can be told apart.
+  const hereTitle = state.tabTitle && state.tabTitle !== state.tabUrl ? clipTitle(state.tabTitle) : '';
 
   const tile = (s, i) => el('div', { class: 'qs-tile', role: 'listitem' },
     el('button', { class: 'qs-open', title: s.url, onclick: () => chrome.tabs.create({ url: s.url }) },
@@ -1736,11 +1749,11 @@ async function drawShortcuts() {
   // At Free's limit the tile stays clickable, to say why it cannot add.
   const full = list.length >= state.limits.shortcuts;
   const add = el('button', { class: 'qs-tile qs-add', disabled: (!full && (!here || haveHere)) || null,
-    title: full ? `Free keeps ${state.limits.shortcuts} shortcuts. Remove one to add another` : !here ? 'Open a web page to add it' : haveHere ? `${state.tabHost} is already here` : `Add ${state.tabHost}`,
+    title: full ? `Free keeps ${state.limits.shortcuts} shortcuts. Remove one to add another` : !here ? 'Open a web page to add it' : haveHere ? 'This page is already here' : `Add ${hereTitle || state.tabHost}`,
     onclick: safe(async () => {
       if (shortcutsFull(list.length)) return;
-      await shortcuts.save([...list, { title: '', url: here }]);
-      toast(`Added ${state.tabHost}`);
+      await shortcuts.save([...list, { title: hereTitle, url: here }]);
+      toast(`Added ${hereTitle || state.tabHost}`);
       drawShortcuts();
     }) },
     el('span', { class: 'qs-ic' }, icon('plus')),
@@ -3710,9 +3723,11 @@ function drawSettings() {
           }))
       ]
     : [row('Saved on this device',
-        'Nothing leaves this browser. Uninstalling DeskSync, or clearing its data, deletes it — export a backup below, or sign in to sync.',
+        FREE_BUILD
+          ? 'Nothing leaves this browser. Uninstalling DeskSync, or clearing its data, deletes it — export a backup below.'
+          : 'Nothing leaves this browser. Uninstalling DeskSync, or clearing its data, deletes it — export a backup below, or sign in to sync.',
         null),
-       signInForm()];
+       FREE_BUILD ? null : signInForm()];
 
   const vaultConflictRows = state.vaultConflict ? [
     row('Two vaults', 'This device and your account each have a vault, with different master passwords. Keep one; the other one’s items are deleted.', null),
@@ -3752,7 +3767,7 @@ function drawSettings() {
       el('div', { class: 'sc-sec' }, 'Plan'),
       ...planRows(row),
 
-      el('div', { class: 'sc-sec' }, state.email ? 'Account' : 'Sync'),
+      el('div', { class: 'sc-sec' }, state.email ? 'Account' : FREE_BUILD ? 'Storage' : 'Sync'),
       ...accountRows,
 
       el('div', { class: 'sc-sec' }, 'Clipboard'),
@@ -3776,7 +3791,7 @@ function drawSettings() {
         'An API key, token or password copied on an approved site is not recorded. Clips you save yourself are kept, and hidden in the list.',
         toggle('skipSecrets', 'Leave out keys and tokens')),
       el('p', { class: 'sc-sec', style: 'font-weight:400;text-transform:none' },
-        'Copied text is stored unencrypted on this device, and in your account if you sign in, including anything a site’s own copy button puts on the clipboard. Avoid approving password managers or banking sites.'),
+        (FREE_BUILD ? 'Copied text is stored unencrypted on this device, including' : 'Copied text is stored unencrypted on this device, and in your account if you sign in, including') + ' anything a site’s own copy button puts on the clipboard. Avoid approving password managers or banking sites.'),
 
       el('div', { class: 'sc-sec' }, 'Vault'),
       ...vaultConflictRows,

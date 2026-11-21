@@ -11,5 +11,8 @@ const DESKSYNC_CONFIG = {
   PRIVACY_URL: 'YOUR-PRIVACY-URL',
   // The page that explains Pro (the site's #pro section). Left as is, Settings
   // describes Pro without a link.
-  PRO_URL: 'YOUR-PRO-URL'
+  PRO_URL: 'YOUR-PRO-URL',
+  // The free download on desksync.org (`make free`): no sign-in or account
+  // screens, and nothing is sent to a server. Everything stays in the browser.
+  FREE_BUILD: false
 };

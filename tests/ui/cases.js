@@ -2120,6 +2120,22 @@
     document.getElementById('home').click();
     await wait(120);
     ok('and All brings them back', !!document.querySelector('#detail [data-shortcuts]'));
+    // + keeps the whole page, named after the tab; another page of the site can be added.
+    const scTab = { tabUrl: state.tabUrl, tabTitle: state.tabTitle, tabHost: state.tabHost };
+    Object.assign(state, { tabUrl: 'https://github.com/org/repo/issues?q=open#top',
+      tabTitle: 'Issues · org/repo · GitHub', tabHost: 'github.com' });
+    await chrome.storage.local.set({ shortcuts: [{ title: '', url: 'https://github.com/' }] });
+    state.scForm = null;
+    await drawShortcuts();
+    ok('+ is open on another page of a site already added', !document.querySelector('.qs-add').disabled);
+    document.querySelector('.qs-add').click();
+    await wait(120);
+    eq('+ keeps the full address, less the #hash, named after the tab',
+      (await chrome.storage.local.get('shortcuts')).shortcuts[1],
+      { title: 'Issues', url: 'https://github.com/org/repo/issues?q=open' });
+    ok('and the same page cannot be added twice', document.querySelector('.qs-add').disabled);
+    eq('a long tab title is cut to fit', clipTitle('A very long page title that goes on'), 'A very long page ti…');
+    Object.assign(state, scTab);
     // Free keeps five: the + tile says Pro, and adding by hand is refused.
     window.__plan = 'free';
     await loadPlan();

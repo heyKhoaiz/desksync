@@ -101,6 +101,12 @@ def main():
     shutil.copy(ROOT / 'extension' / 'icons' / 'icon128.png', OUT)
     shutil.copy(ROOT / 'extension' / 'icons' / 'logo.svg', OUT)
     shutil.copy(ROOT / 'docs' / 'brand' / 'wordmark.svg', OUT)
+    # The free download (make free), linked from the hero and #download.
+    free = ROOT / 'dist' / 'desksync-free.zip'
+    if free.exists():
+        shutil.copy(free, OUT)
+    else:
+        print('  No dist/desksync-free.zip: run make free, or the download link is broken')
     # GitHub Pages serves the site on a custom domain named in a CNAME file.
     domain = os.environ.get('SITE_DOMAIN', '').strip()
     if domain:

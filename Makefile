@@ -4,7 +4,7 @@ export PATH := $(HOME)/development/flutter/bin:$(HOME)/development/android-sdk/p
 -include .env
 
 .DEFAULT_GOAL := help
-.PHONY: help env ext zip site publish-site wp-theme wp-up wp-install wp-down wp-reset store-check admin icons app apk devices test test-ext clean check-env
+.PHONY: help env ext zip free site publish-site wp-theme wp-up wp-install wp-down wp-reset store-check admin icons app apk devices test test-ext clean check-env
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -30,7 +30,16 @@ zip: ext ## Package the built extension as dist/desksync-extension.zip
 	@cd dist/extension && zip -qr ../desksync-extension.zip .
 	@echo "Zip: $(CURDIR)/dist/desksync-extension.zip"
 
-site: ## Build the website (landing page, privacy policy, waitlist) into dist/site
+free: ## Build the free download (no sign-in, nothing leaves the browser) as dist/desksync-free.zip
+	@rm -rf dist/extension-free dist/desksync-free.zip && mkdir -p dist && cp -r extension dist/extension-free
+	@sed -i 's|FREE_BUILD: false|FREE_BUILD: true|' dist/extension-free/config.js
+	@grep -q 'FREE_BUILD: true' dist/extension-free/config.js || { echo "FREE_BUILD not set in config.js"; exit 1; }
+	@if [ -n "$(SUPPORT_EMAIL)" ]; then sed -i 's|YOUR-SUPPORT-EMAIL|$(SUPPORT_EMAIL)|' dist/extension-free/config.js; fi
+	@if [ -n "$(PRIVACY_URL)" ]; then sed -i 's|YOUR-PRIVACY-URL|$(PRIVACY_URL)|' dist/extension-free/config.js; fi
+	@cd dist/extension-free && zip -qr ../desksync-free.zip .
+	@echo "Free build: $(CURDIR)/dist/extension-free (Load unpacked), zip: $(CURDIR)/dist/desksync-free.zip"
+
+site: free ## Build the website (landing page, privacy policy, waitlist, free download) into dist/site
 	@SUPABASE_URL="$(SUPABASE_URL)" SUPABASE_ANON_KEY="$(SUPABASE_ANON_KEY)" SUPPORT_EMAIL="$(SUPPORT_EMAIL)" STORE_URL="$(STORE_URL)" SITE_DOMAIN="$(SITE_DOMAIN)" python3 tools/build_site.py
 
 publish-site: site ## Publish dist/site to the VPS, where desksync.org is served (deploy/vps/)
