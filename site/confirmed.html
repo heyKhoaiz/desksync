@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Email confirmed · DeskSync</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="icon" href="icon128.png" sizes="128x128">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Supabase lands here with either a session (#access_token=…) or an error
+  // (#error=…&error_description=…). Read it, then drop it from the address bar
+  // and history: the page never needs the tokens and they should not linger.
+  (function () {
+    var h = new URLSearchParams(location.hash.slice(1));
+    window.__confirm = { error: h.get('error_description') || h.get('error') || '' };
+    if (location.hash) history.replaceState(null, '', location.pathname);
+  })();
+</script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><img class="logo" src="wordmark.svg" width="113" height="26" alt="DeskSync"></a>
+</header>
+
+<main class="confirm">
+  <section class="band" id="ok">
+    <h1>Your email is confirmed</h1>
+    <p class="lead">Your DeskSync account is ready. Open the extension, go to <b>Settings</b>, and sign in
+      with the email and password you just chose.</p>
+    <p class="small">You can close this tab.</p>
+  </section>
+
+  <section class="band" id="fail" hidden>
+    <h1>This link didn't work</h1>
+    <p class="lead" id="fail-why">The link may have expired or already been used.</p>
+    <p class="small">If you already confirmed, just sign in from the extension. Otherwise, sign up again
+      in the extension to get a new link.</p>
+  </section>
+</main>
+
+<footer class="foot"><span>DeskSync</span><a href="./">Home</a><a href="privacy.html">Privacy</a></footer>
+
+<script>
+  if (window.__confirm.error) {
+    document.getElementById('ok').hidden = true;
+    document.getElementById('fail').hidden = false;
+    document.getElementById('fail-why').textContent = window.__confirm.error.replace(/\+/g, ' ') + '.';
+  }
+</script>
+</body>
+</html>

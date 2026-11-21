@@ -8,8 +8,7 @@ a { color: inherit; }
 .top, main, .foot { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 .top { display: flex; align-items: center; justify-content: space-between; height: 72px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; }
-.mark { width: 32px; height: 32px; border-radius: 50%; background: var(--fg); color: var(--ground);
-  display: grid; place-items: center; font-size: 14px; }
+.logo { display: block; height: 26px; width: auto; }
 .top nav { display: flex; gap: 22px; font-size: 14px; }
 .top nav a { text-decoration: none; color: var(--fg-2); }
 .top nav a:hover { color: var(--fg); }
@@ -22,6 +21,9 @@ h1 em, h2 em { font-style: normal; background: linear-gradient(transparent 62%, 
 .btn { display: inline-flex; align-items: center; height: 46px; padding: 0 22px; border-radius: 999px; border: 0;
   background: var(--fg); color: var(--ground); font: 600 15px/1 inherit; text-decoration: none; cursor: pointer; }
 .btn:hover { opacity: .88; }
+.btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+.steps { padding-left: 1.4em; margin: 0 0 16px; color: var(--fg-2); line-height: 1.9; }
+.steps b { color: var(--fg); }
 .btn.pending { background: transparent; color: var(--fg-2); border: 1px dashed var(--line); cursor: default; }
 .small { font-size: 13px; color: var(--fg-2); }
 .shot { width: 100%; height: auto; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.16), 0 0 0 1px rgba(0,0,0,.05); display: block; }
@@ -57,6 +59,19 @@ h1 em, h2 em { font-style: normal; background: linear-gradient(transparent 62%, 
 .foot { display: flex; gap: 24px; padding-top: 24px; padding-bottom: 48px; border-top: 1px solid var(--line); font-size: 14px; color: var(--fg-2); }
 .foot span { margin-right: auto; font-weight: 600; color: var(--fg); }
 
+/* The notes page (/note/). */
+.note-points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px 40px; padding: 24px 0 72px; }
+.note-points h2 { font-size: 20px; letter-spacing: -.01em; margin: 0 0 8px; }
+.note-points p { margin: 0; color: var(--fg-2); }
+.note-points code, .note-end code { font: 14px ui-monospace, Menlo, Consolas, monospace; background: var(--card); padding: 1px 6px; border-radius: 6px; }
+.note-end { max-width: 720px; padding: 8px 0 88px; }
+.note-end h2 { font-size: 30px; letter-spacing: -.02em; margin: 0 0 12px; }
+
+/* The page the signup email's confirm link lands on. */
+.confirm { max-width: 680px; padding-top: 48px; padding-bottom: 80px; }
+.confirm h1 { font-size: clamp(28px, 4vw, 38px); }
+.confirm .lead { margin-bottom: 12px; }
+
 /* The privacy policy page. */
 .doc { max-width: 760px; margin: 0 auto; padding: 8px 24px 80px; }
 .doc h1 { font-size: 40px; }
@@ -65,7 +80,7 @@ h1 em, h2 em { font-style: normal; background: linear-gradient(transparent 62%, 
 .doc code { font: 14px ui-monospace, Menlo, Consolas, monospace; background: var(--card); padding: 1px 6px; border-radius: 6px; }
 
 @media (max-width: 820px) {
-  .hero, .features, .plans, .points { grid-template-columns: 1fr; }
+  .hero, .features, .plans, .points, .note-points { grid-template-columns: 1fr; }
   .band { padding: 32px 24px; }
   .waitlist .row { flex-direction: column; }
 }

@@ -1,0 +1,68 @@
+# desksync.org on WordPress, on the VPS (/home/ubuntu/desksync on khoaiz-vps).
+# Replaces docker-compose.yml (the static Caddy). The WordPress container keeps the
+# name desksync-site, so the main Caddy's `reverse_proxy desksync-site:80` is unchanged.
+#
+#   docker compose -f docker-compose.wordpress.yml up -d
+#   docker compose -f docker-compose.wordpress.yml run --rm cli wp <command>
+#
+# Secrets in .env next to this file (never in git): DB_PASSWORD, DB_ROOT_PASSWORD.
+services:
+  wordpress:
+    image: wordpress:7.0-php8.4-apache
+    container_name: desksync-site
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_CONFIG_EXTRA: |
+        if ( isset( $$_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $$_SERVER['HTTP_X_FORWARDED_PROTO'] ) { $$_SERVER['HTTPS'] = 'on'; }
+        define( 'WP_HOME', 'https://desksync.org' );
+        define( 'WP_SITEURL', 'https://desksync.org' );
+        define( 'DISALLOW_FILE_EDIT', true );
+        define( 'FS_METHOD', 'direct' );
+    volumes:
+      - wp-html:/var/www/html
+    networks: [default, khoaiz]
+
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  cli:
+    image: wordpress:cli-php8.4
+    profiles: ['cli']
+    user: '33:33'
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - wp-html:/var/www/html
+
+# Back these two up: wp-html (core, theme, media) and db-data (pages, settings).
+volumes:
+  wp-html:
+  db-data:
+
+networks:
+  khoaiz:
+    name: khoaiz_default
+    external: true

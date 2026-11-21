@@ -28,6 +28,7 @@ const DRAFT_KEY = 'pendingDraft';
 // passwords, which sync will not merge on its own.
 const VAULT_META_KEY = LOCAL_PREFIX + 'vault_meta';
 const VAULT_CONFLICT_KEY = 'vaultConflict';
+const VAULT_WRAP_FIELDS = ['pw_salt', 'pw_wrap_iv', 'pw_wrap_ct', 'rk_salt', 'rk_wrap_iv', 'rk_wrap_ct'];
 const SYNC_TABLES = ['notes', 'read_later', 'clips', 'vault_items'];
 
 // Column defaults, mirroring supabase/schema.sql, so a row made here looks the
@@ -211,7 +212,26 @@ const store = {
   async setVaultMeta(meta, { fromServer = false } = {}) {
     const row = { salt: meta.salt, iterations: meta.iterations, verifier_iv: meta.verifier_iv,
       verifier_ct: meta.verifier_ct, _dirty: !fromServer, _synced: fromServer };
+    // The wrapped vault key (lib/crypto.js). A vault made before wrapping has
+    // none, and its row is left exactly as before, so it still syncs to a
+    // database without migration 005.
+    for (const k of VAULT_WRAP_FIELDS) if (meta[k] != null) row[k] = meta[k];
+    // _base: the wraps as the server last had them, so sync can tell which of
+    // them this device changed since (see client.js, mergeWraps).
+    const pick = (m) => Object.fromEntries(VAULT_WRAP_FIELDS.filter((k) => m?.[k] != null).map((k) => [k, m[k]]));
+    if (fromServer) row._base = pick(meta);
+    else {
+      const { [VAULT_META_KEY]: prev } = await chrome.storage.local.get(VAULT_META_KEY);
+      const same = prev && prev.salt === meta.salt && prev.verifier_ct === meta.verifier_ct;
+      row._base = !same ? {} : prev._base ?? (prev._synced ? pick(prev) : {});
+    }
     await chrome.storage.local.set({ [VAULT_META_KEY]: row });
+  },
+  // Forgets this device's vault: its settings and every item. Sync's
+  // resetVault clears the account's copy first.
+  async clearVault() {
+    await chrome.storage.local.remove([VAULT_META_KEY, VAULT_CONFLICT_KEY]);
+    await this.dropVaultItems();
   },
   async vaultConflict() {
     const { [VAULT_CONFLICT_KEY]: c } = await chrome.storage.local.get(VAULT_CONFLICT_KEY);

@@ -81,14 +81,17 @@ def main():
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
-    for f in (ROOT / 'site').iterdir():
+    # Pages in folders (site/note/index.html) are served at /note/.
+    for f in (ROOT / 'site').rglob('*'):
         if f.suffix in ('.html', '.css', '.js'):
-            (OUT / f.name).write_text(fill(f.read_text()))
+            dest = OUT / f.relative_to(ROOT / 'site')
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(fill(f.read_text()))
     body = markdown(fill((ROOT / 'PRIVACY.md').read_text()))
     page = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DeskSync privacy policy</title><link rel="icon" href="icon128.png"><link rel="stylesheet" href="style.css"></head>
-<body><header class="top"><a class="brand" href="./"><span class="mark">D</span> DeskSync</a></header>
+<title>DeskSync privacy policy</title><link rel="icon" href="logo.svg" type="image/svg+xml"><link rel="icon" href="icon128.png" sizes="128x128"><link rel="stylesheet" href="style.css"></head>
+<body><header class="top"><a class="brand" href="./"><img class="logo" src="wordmark.svg" width="113" height="26" alt="DeskSync"></a></header>
 <main class="doc">{body}</main>
 <footer class="foot"><span>DeskSync</span><a href="./">Home</a></footer></body></html>
 '''
@@ -96,11 +99,19 @@ def main():
     for n in range(1, 6):
         shutil.copy(ROOT / 'docs' / 'store' / f'app-{n}.png', OUT)
     shutil.copy(ROOT / 'extension' / 'icons' / 'icon128.png', OUT)
+    shutil.copy(ROOT / 'extension' / 'icons' / 'logo.svg', OUT)
+    shutil.copy(ROOT / 'docs' / 'brand' / 'wordmark.svg', OUT)
+    # The free download (make free), linked from the hero and #download.
+    free = ROOT / 'dist' / 'desksync-free.zip'
+    if free.exists():
+        shutil.copy(free, OUT)
+    else:
+        print('  No dist/desksync-free.zip: run make free, or the download link is broken')
     # GitHub Pages serves the site on a custom domain named in a CNAME file.
     domain = os.environ.get('SITE_DOMAIN', '').strip()
     if domain:
         (OUT / 'CNAME').write_text(domain + '\n')
-    left = sorted({m for f in OUT.glob('*.html') for m in re.findall(r'\{\{(\w+)\}\}', f.read_text())})
+    left = sorted({m for f in OUT.rglob('*.html') for m in re.findall(r'\{\{(\w+)\}\}', f.read_text())})
     print(f'Built {OUT}')
     if left:
         print('  Not filled in yet (set in .env): ' + ', '.join(left))

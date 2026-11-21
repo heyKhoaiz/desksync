@@ -21,9 +21,11 @@ your account and protected by row-level security: only you can read or change yo
 - **Notes, links and clips** are stored as you wrote or copied them. They are not end-to-end
   encrypted: they are protected by your account, not by a key only you hold.
 - **Vault items** (logins and passwords) are encrypted in your browser before they are saved,
-  with a key derived from your master password (PBKDF2, 600,000 iterations, then AES-GCM).
-  The master password and the key never leave your device. Nobody else, including whoever
-  runs the database, can read your vault, and a forgotten master password cannot be recovered.
+  with a vault key (AES-GCM) that is itself encrypted with your master password (PBKDF2,
+  600,000 iterations), and, if you make one, with your recovery key. The master password, the
+  recovery key and the vault key never leave your device unencrypted. Nobody else, including
+  whoever runs the database, can read your vault. A forgotten master password can be replaced
+  only with your recovery key; without one, the vault cannot be opened, and can only be reset.
 - **Your email address** is used to sign you in.
 
 Signing out keeps your data on the device. "Sign out and erase this device" removes it from the

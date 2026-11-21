@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskSync Notes: a notes extension for Chrome that works offline</title>
+<meta name="description" content="Take notes in Chrome from any page with Alt+Shift+K. Checklists, email drafts, templates and saved replies, stored in your browser with no account. Free, with no limit on notes.">
+<link rel="canonical" href="https://desksync.org/note/">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/icon128.png" sizes="128x128">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/"><img class="logo" src="/wordmark.svg" width="113" height="26" alt="DeskSync"></a>
+  <nav><a href="#how">How it works</a><a href="#privacy">Privacy</a><a href="/#pro">Sync</a></nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>Notes in Chrome, <em>one shortcut away</em></h1>
+      <p class="lead">Press Alt+Shift+K on any page and start typing. Checklists, email drafts and
+        saved replies, kept in your browser. No account, no limit on notes.</p>
+      <p class="cta">
+        <a class="btn install" href="{{STORE_URL}}">Add to Chrome, free</a>
+        <span class="small">Chrome, Edge, Brave and other Chromium browsers</span>
+      </p>
+    </div>
+    <img class="shot hero-shot" src="/app-2.png" width="780" height="560" alt="A DeskSync note with a checklist, two items ticked">
+  </section>
+
+  <section id="how" class="note-points">
+    <article>
+      <h2>Formatting you can see</h2>
+      <p>Bold, italic, lists and checklists show as they look while you write. Underneath, the note is
+        plain text, so nothing is locked in.</p>
+    </article>
+    <article>
+      <h2>Checklists that keep count</h2>
+      <p>Start a note as <b>Tasks</b>, or type <code>/task</code>. Tick items off and the list shows how
+        far along you are.</p>
+    </article>
+    <article>
+      <h2>Keep a quote with its source</h2>
+      <p>Select text, right-click, <b>Save selection as a note</b>. The page's address goes at the foot of
+        the note.</p>
+    </article>
+    <article>
+      <h2>Saved replies for any text box</h2>
+      <p>Click into a text box, open DeskSync, pick a note and press Shift+Enter. Gmail, Docs and Notion
+        get the formatting; plain fields get the words.</p>
+    </article>
+    <article>
+      <h2>Drafts that open in your mail</h2>
+      <p>Start a note as <b>Email</b>, add To and Subject, and <b>Open in mail</b> fills in a new message
+        in your mail app or Gmail.</p>
+    </article>
+    <article>
+      <h2>Find it from the address bar</h2>
+      <p>Type <code>ds</code>, a space and a word. One search covers your notes, saved pages and copied
+        text.</p>
+    </article>
+  </section>
+
+  <section id="privacy" class="band">
+    <h2>Your notes stay in your browser</h2>
+    <ul class="points">
+      <li><b>Saved on your computer first.</b> Notes work offline and need no account.</li>
+      <li><b>Nothing leaves your browser</b> unless you sign in to sync.</li>
+      <li><b>No analytics, no tracking, no ads.</b></li>
+      <li><b>Saves as you type.</b> Close the popup mid-sentence and the note is still there.</li>
+    </ul>
+    <p><a href="/privacy.html">Read the privacy policy</a></p>
+  </section>
+
+  <section class="note-end">
+    <h2>Free, with no limit on notes</h2>
+    <p class="lead">Every note feature is free on one computer. DeskSync also keeps a read-later list,
+      clipboard history and an encrypted vault for logins. <a href="/">See everything</a>, or
+      <a href="/#pro">join the waitlist</a> for sync across computers.</p>
+    <p class="cta"><a class="btn install" href="{{STORE_URL}}">Add to Chrome, free</a></p>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>DeskSync</span>
+  <a href="/">Home</a>
+  <a href="/privacy.html">Privacy</a>
+  <a href="mailto:{{SUPPORT_EMAIL}}">Contact</a>
+</footer>
+
+<script>
+  // Until the extension is published there is no store page to link to.
+  if ('{{STORE_URL}}'.includes('{{')) {
+    document.querySelectorAll('.install').forEach((a) => {
+      a.removeAttribute('href');
+      a.classList.add('pending');
+      a.textContent = 'Coming soon to the Chrome Web Store';
+    });
+  }
+</script>
+</body>
+</html>

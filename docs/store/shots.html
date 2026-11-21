@@ -12,8 +12,7 @@
   body { background: #e7e7e4; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; color: #141414;
     display: flex; align-items: center; gap: 56px; padding: 0 64px; }
   .copy { width: 360px; flex: none; }
-  .mark { width: 44px; height: 44px; border-radius: 50%; background: #141414; color: #e7e7e4; display: grid;
-    place-items: center; font-weight: 700; font-size: 19px; margin-bottom: 28px; }
+  .mark { display: block; width: 48px; height: 48px; margin-bottom: 28px; }
   h1 { font-size: 38px; line-height: 1.12; letter-spacing: -.02em; margin: 0 0 18px; font-weight: 750; }
   h1 em { font-style: normal; background: linear-gradient(transparent 62%, #ffd84d 62%); }
   p { font-size: 17px; line-height: 1.55; color: #4a4a46; margin: 0 0 14px; }
@@ -67,7 +66,7 @@
   };
   const n = new URLSearchParams(location.search).get('n') || '1';
   const s = SHOTS[n];
-  document.getElementById('copy').innerHTML = `<div class="mark">D</div><h1>${s.h}</h1>` + s.p.map((t) => `<p>${t}</p>`).join('');
+  document.getElementById('copy').innerHTML = `<img class="mark" src="../../extension/icons/logo.svg" alt="DeskSync"><h1>${s.h}</h1>` + s.p.map((t) => `<p>${t}</p>`).join('');
   const frame = document.getElementById('frame');
   if (s.src) {
     frame.innerHTML = `<iframe src="${s.src}" width="780" height="560"></iframe>`;

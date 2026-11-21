@@ -1,0 +1,190 @@
+/* DeskSync's site. The same greys, ink and yellow as the extension, and the
+   same system font, so the page and the product look like one thing. */
+:root {
+  --ground: #e7e7e4; --card: #fff; --fg: #141414; --fg-2: #55554f; --line: #d6d6d0; --accent: #ffd84d;
+  --ok: #138a59; --err: #c5221f;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px; --s9: 96px;
+  --r-sm: 10px; --r: 16px; --r-lg: 24px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--ground); color: var(--fg);
+  font: 16px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+[id] { scroll-margin-top: 88px; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+.top, .site-main, .foot { max-width: 1160px; margin: 0 auto; padding: 0 var(--s5); }
+
+/* Header: stays in reach while the page scrolls. */
+.wp-site-blocks > div:first-child:has(.top) { position: sticky; top: 0; z-index: 10;
+  background: rgba(231, 231, 228, .92); border-bottom: 1px solid transparent; }
+@supports (backdrop-filter: blur(8px)) { .wp-site-blocks > div:first-child:has(.top) { backdrop-filter: blur(8px); } }
+.top { display: flex; align-items: center; gap: var(--s6); min-height: 68px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; text-decoration: none; }
+.logo { display: block; height: 26px; width: auto; }
+.top nav { display: flex; gap: var(--s5); font-size: 14px; margin-left: auto; }
+.top nav a { text-decoration: none; color: var(--fg-2); }
+.top nav a:hover { color: var(--fg); }
+
+/* Buttons */
+.btn, .wp-block-button .wp-block-button__link { display: inline-flex; align-items: center; justify-content: center;
+  height: 48px; padding: 0 var(--s5); border-radius: 999px; border: 1px solid var(--fg); background: var(--fg);
+  color: var(--ground); font: 600 15px/1 inherit; text-decoration: none; cursor: pointer; transition: opacity .15s; }
+.btn:hover, .wp-block-button .wp-block-button__link:hover { opacity: .86; }
+.btn-small { height: 38px; padding: 0 var(--s4); font-size: 14px; }
+.wp-block-button.secondary .wp-block-button__link { background: transparent; color: var(--fg); }
+.wp-block-button.install.pending .wp-block-button__link { background: transparent; color: var(--fg-2);
+  border: 1px dashed #a9a9a2; cursor: default; opacity: 1; }
+.btn:disabled { opacity: .5; cursor: wait; }
+
+.small { font-size: 13px; color: var(--fg-2); margin: 0; }
+.shot { margin: 0; }
+.shot img { width: 100%; height: auto; aspect-ratio: 780 / 560; object-fit: cover; border-radius: 14px; display: block;
+  box-shadow: 0 24px 60px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06); }
+
+/* WordPress's flow layout puts a top margin on every child but the first; these grids space themselves. */
+.hero > *, .features > *, .plans > *, .points > *, .kinds > *, .keys > *, .more-list > *, .faq-list > *, .security > * { margin-block: 0; }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s7); align-items: center; padding: var(--s8) 0 var(--s9); }
+.kicker { font-size: 14px; font-weight: 600; color: var(--fg-2); margin: 0 0 var(--s4); }
+.site-main h1 { font-size: clamp(36px, 4.8vw, 56px); line-height: 1.05; letter-spacing: -.028em; margin: 0 0 var(--s5); }
+h1 em, h2 em { font-style: normal; background: linear-gradient(transparent 62%, var(--accent) 62%); }
+.lead { font-size: 19px; color: var(--fg-2); margin: 0 0 var(--s6); max-width: 34em; }
+.cta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin: 0 0 var(--s5); }
+.facts { list-style: none; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); padding: 0; margin: 0; font-size: 14px; color: var(--fg-2); }
+.facts li { display: flex; align-items: center; gap: var(--s2); }
+.facts li::before { content: ""; width: 14px; height: 8px; border: solid var(--fg); border-width: 0 0 2px 2px;
+  transform: rotate(-45deg) translateY(-2px); flex: none; }
+
+/* The four kinds: laid out like the extension's rail, one strip with dividers. */
+.kinds { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--card); border-radius: var(--r-lg); margin-bottom: var(--s9); }
+.kind { padding: var(--s6) var(--s5); }
+.kind + .kind { border-left: 1px solid var(--line); }
+.kind h2 { font-size: 17px; margin: 0 0 var(--s2); display: flex; align-items: center; gap: var(--s2); }
+.kind h2::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px rgba(0,0,0,.18); }
+.kind p { margin: 0; font-size: 15px; color: var(--fg-2); }
+
+/* Sections */
+.section { padding-bottom: var(--s9); }
+.section-title { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -.022em; margin: 0 0 var(--s3); max-width: 22em; }
+.section-lead { font-size: 18px; color: var(--fg-2); margin: 0 0 var(--s7); max-width: 38em; }
+
+.features { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s8) var(--s7); }
+.features h3 { font-size: 22px; line-height: 1.25; letter-spacing: -.012em; margin: var(--s5) 0 var(--s2); }
+.features p { margin: 0; color: var(--fg-2); }
+
+/* Shortcuts */
+.keys { display: grid; grid-template-columns: 1fr 1.15fr; gap: var(--s7); align-items: start; }
+.keys .section-lead { margin-bottom: var(--s4); }
+.shortcuts { margin: 0; background: var(--card); border-radius: var(--r-lg); padding: var(--s3) var(--s6); }
+.shortcuts table { width: 100%; border-collapse: collapse; }
+.shortcuts table td { border: 0; border-bottom: 1px solid var(--line); padding: 14px 0; vertical-align: middle; color: var(--fg-2); font-size: 15px; }
+.shortcuts table tr:last-child td { border-bottom: 0; }
+.shortcuts table td:first-child { width: 44%; padding-right: var(--s4); white-space: nowrap; color: var(--fg); }
+kbd { display: inline-block; font: 600 13px/1 ui-monospace, Menlo, Consolas, monospace; padding: 6px 8px; border-radius: 7px;
+  background: var(--ground); border: 1px solid var(--line); box-shadow: inset 0 -2px 0 var(--line); color: var(--fg); }
+
+/* The smaller things */
+.more-list { list-style: none; padding: 0; margin: var(--s6) 0 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 var(--s7); }
+.more-list li { padding: var(--s4) 0; border-top: 1px solid var(--line); color: var(--fg-2); }
+.more-list strong { color: var(--fg); }
+
+/* Security: the one dark section, the way the vault is the locked part of the app. */
+.security { background: var(--fg); color: var(--ground); border-radius: var(--r-lg); padding: var(--s8) var(--s7);
+  margin-bottom: var(--s9); display: grid; grid-template-columns: .9fr 1.1fr; gap: var(--s7); }
+.security .section-lead { color: #bdbdb6; margin-bottom: var(--s5); }
+.security a { color: var(--accent); }
+.points { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s5); }
+.points li { color: #bdbdb6; padding-left: var(--s5); position: relative; }
+.points li::before { content: ""; position: absolute; left: 0; top: .55em; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.points strong { color: #fff; }
+
+/* Free and Pro */
+.plans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); margin-bottom: var(--s5); }
+.plan { background: var(--card); border-radius: var(--r); padding: var(--s6); border: 2px solid transparent; }
+.plan-pro { border-color: var(--fg); }
+.plan h3 { margin: 0 0 var(--s2); font-size: 20px; display: flex; align-items: center; gap: 10px; }
+.plan .tag { font-size: 12px; font-weight: 600; background: var(--accent); border-radius: 999px; padding: 2px 10px; }
+.price { font-size: 36px; font-weight: 750; letter-spacing: -.02em; margin: 0 0 var(--s4); }
+.price span { font-size: 15px; font-weight: 400; letter-spacing: 0; color: var(--fg-2); }
+.plan ul { margin: 0; padding-left: 20px; color: var(--fg-2); }
+.plan li + li { margin-top: 6px; }
+.compare { margin: 0 0 var(--s3); background: var(--card); border-radius: var(--r); padding: var(--s2) var(--s6); overflow-x: auto; }
+.compare table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.compare table thead { border: 0; }
+.compare table th, .compare table td { border: 0; text-align: left; padding: 14px 12px 14px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.compare table tr:last-child td { border-bottom: 0; }
+.compare table td { color: var(--fg-2); }
+.compare table td:first-child { color: var(--fg); font-weight: 500; }
+.compare table th:nth-child(n+2), .compare table td:nth-child(n+2) { width: 28%; }
+.never { margin: 0 0 var(--s6); }
+
+.waitlist { background: var(--card); border-radius: var(--r); padding: var(--s6); }
+.waitlist label { display: block; font-weight: 600; margin-bottom: var(--s3); }
+.waitlist .row { display: flex; gap: 10px; }
+.waitlist input { flex: 1; min-width: 0; height: 48px; padding: 0 18px; border-radius: 999px; border: 1px solid #a9a9a2;
+  font: inherit; background: var(--ground); }
+.waitlist input:focus { outline: 2px solid var(--fg); outline-offset: 1px; }
+.msg { min-height: 1.6em; margin: 10px 0 4px; font-size: 14px; }
+.msg.ok { color: var(--ok); font-weight: 600; } .msg.err { color: var(--err); }
+
+/* Questions */
+.faq { display: grid; grid-template-columns: .7fr 1.3fr; gap: var(--s7); }
+.faq-list { border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; list-style: none; padding: var(--s5) var(--s6) var(--s5) 0; font-weight: 650; font-size: 17px; position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 22px; font-weight: 400; color: var(--fg-2); }
+.faq details[open] summary::after { content: "−"; }
+.faq details p { margin: 0 0 var(--s5); color: var(--fg-2); max-width: 40em; }
+
+/* Closing */
+.closing { background: var(--accent); border-radius: var(--r-lg); padding: var(--s8) var(--s7); margin-bottom: var(--s8); text-align: left; }
+.closing h2 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -.022em; margin: 0 0 var(--s3); max-width: 16em; }
+.closing p { margin: 0 0 var(--s5); font-size: 18px; }
+.closing .cta { margin: 0; }
+.closing .wp-block-button.install.pending .wp-block-button__link { border-color: var(--fg); color: var(--fg); }
+
+/* Footer */
+.foot { display: grid; grid-template-columns: 2fr 1fr 1fr 1.3fr; gap: var(--s6); padding-top: var(--s7); padding-bottom: var(--s6);
+  border-top: 1px solid var(--line); font-size: 14px; color: var(--fg-2); }
+.foot h2 { font-size: 13px; font-weight: 700; color: var(--fg); margin: 0 0 var(--s3); }
+.foot nav, .foot > div { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+.foot nav a, .foot > div a { text-decoration: none; }
+.foot nav a:hover, .foot > div a:hover { color: var(--fg); text-decoration: underline; }
+.foot-brand p { margin: var(--s2) 0 0; max-width: 26em; }
+.foot-note { grid-column: 1 / -1; margin: var(--s5) 0 0; padding-top: var(--s5); border-top: 1px solid var(--line); font-size: 13px; }
+
+/* The privacy policy and any other page. */
+.doc { max-width: 760px; margin: 0 auto; padding: var(--s7) var(--s5) var(--s9); }
+.doc h1 { font-size: 40px; line-height: 1.1; letter-spacing: -.02em; margin: 0 0 var(--s4); }
+.doc h2 { font-size: 22px; margin: var(--s6) 0 var(--s2); letter-spacing: -.01em; }
+.doc p, .doc li { color: #2f2f2c; }
+.doc code { font: 14px ui-monospace, Menlo, Consolas, monospace; background: var(--card); padding: 1px 6px; border-radius: 6px; }
+
+@media (max-width: 960px) {
+  .kinds { grid-template-columns: 1fr 1fr; }
+  .kind:nth-child(3) { border-left: 0; }
+  .kind:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .keys, .security, .faq { grid-template-columns: 1fr; gap: var(--s6); }
+  .foot { grid-template-columns: 1fr 1fr; }
+  .foot-brand { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .top nav { display: none; }
+  .top .install-link { margin-left: auto; }
+  .hero, .features, .plans, .more-list { grid-template-columns: 1fr; }
+  .hero { gap: var(--s6); padding: var(--s6) 0 var(--s8); }
+  .section, .kinds { padding-bottom: var(--s8); margin-bottom: 0; }
+  .kinds { margin-bottom: var(--s8); padding-bottom: 0; grid-template-columns: 1fr; }
+  .kind + .kind { border-left: 0; border-top: 1px solid var(--line); }
+  .security, .closing { padding: var(--s6) var(--s5); }
+  .shortcuts, .compare, .plan, .waitlist { padding-left: var(--s5); padding-right: var(--s5); }
+  .shortcuts table td:first-child { white-space: normal; }
+  .waitlist .row { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

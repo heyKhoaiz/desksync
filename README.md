@@ -38,7 +38,7 @@ After changing extension code, run `make ext` again and click reload on the exte
 Plug in a phone with USB debugging on, then run `make app`. See `mobile/README.md`.
 
 ### Commands
-Run `make` to list them all: `env`, `ext`, `zip`, `site`, `store-check`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
+Run `make` to list them all: `env`, `ext`, `zip`, `site`, `store-check`, `admin`, `icons`, `app`, `apk`, `devices`, `test`, `test-ext`, `test-ui`, `clean`.
 
 ### Publishing
 See [docs/STORE_LISTING.md](docs/STORE_LISTING.md): what to paste into the Chrome Web Store, the
@@ -83,7 +83,7 @@ rules, and `make site` builds the website (landing page, privacy policy, sync wa
 | Keys and tokens | a clip that looks like an API key, token or private key is shown masked and left out of search. *To vault* moves it into the encrypted vault. Captured clipboard leaves them out entirely (Settings → *Leave out keys and tokens*) |
 | Add a login | Vault → *New login*. Editing one has an explicit Save, unlike notes: a password saved half-typed is a login you can no longer use |
 | Clipboard history | off by default: in Settings, turn on capture and click *Allow* on each site, or use *Save from clipboard* in the Clipboard tab |
-| Vault | Vault tab → set a master password (cannot be recovered) |
+| Vault | Vault tab → set a master password, then save the recovery key it shows: the only way back in if you forget the password. Settings → Vault makes a new recovery key or changes the master password |
 | Backup codes | Vault → a login → *Edit*, then paste the codes the site gave you (any common format; headings are skipped). The login shows *7 of 10 codes left*; *Copy* on a code copies it and marks it used, with *Undo*. Used codes fold away and can be restored. A new set from the site replaces the old one |
 | Copied passwords | a password, backup code or key you copy is cleared from the clipboard after 30 seconds, unless you copied something else since. Settings → Vault to turn it off |
 | Fill a login | open the site, then Vault → the item saved for that site → *Fill* |

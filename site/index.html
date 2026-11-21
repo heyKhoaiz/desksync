@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeskSync: notes, saved pages, copied text and logins in one private place</title>
 <meta name="description" content="A Chrome extension that keeps the things you need while browsing (notes, saved pages, copied text and logins) in one private, searchable place. Works offline; sync is optional.">
-<link rel="icon" href="icon128.png">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="icon" href="icon128.png" sizes="128x128">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="./"><span class="mark">D</span> DeskSync</a>
-  <nav><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#pro">Sync</a></nav>
+  <a class="brand" href="./"><img class="logo" src="wordmark.svg" width="113" height="26" alt="DeskSync"></a>
+  <nav><a href="#features">Features</a><a href="#get">Free download</a><a href="#privacy">Privacy</a><a href="#pro">Sync</a></nav>
 </header>
 
 <main>
@@ -22,6 +23,7 @@
         Works the moment it is installed, with no account.</p>
       <p class="cta">
         <a class="btn" id="install" href="{{STORE_URL}}">Add to Chrome, free</a>
+        <a class="btn ghost" id="download" href="desksync-free.zip" download>Download the free version</a>
         <span class="small" id="install-note">Chrome, Edge, Brave and other Chromium browsers</span>
       </p>
     </div>
@@ -33,7 +35,7 @@
       <img class="shot" src="app-2.png" width="780" height="560" alt="A note with a checklist, two items ticked">
       <h2>Notes that look like notes</h2>
       <p>Bold, lists and checklists show as they look. Tick a task and the list remembers how far
-        along you are. Alt+Shift+K starts a note from any page.</p>
+        along you are. Alt+Shift+K starts a note from any page. <a href="note/">More about notes</a></p>
     </article>
     <article>
       <img class="shot" src="app-3.png" width="780" height="560" alt="The vault: several accounts and a login's backup codes, 6 of 8 left">
@@ -55,6 +57,21 @@
     </article>
   </section>
 
+  <section id="get" class="band">
+    <h2>Use it free, no account</h2>
+    <p>Anyone can use the free version. There is nothing to sign up for: notes, saved pages, clips
+      and logins stay in your browser and never leave it.</p>
+    <ol class="steps">
+      <li><a href="desksync-free.zip" download>Download desksync-free.zip</a> and unzip it.</li>
+      <li>Open <b>chrome://extensions</b> (or edge://extensions, brave://extensions).</li>
+      <li>Turn on <b>Developer mode</b>, top right.</li>
+      <li>Click <b>Load unpacked</b> and choose the unzipped folder.</li>
+      <li>Pin DeskSync from the puzzle icon, or press Alt+Shift+D.</li>
+    </ol>
+    <p class="small">The free version keeps 20 notes, 20 logins, backup codes on 2 logins and 5 site shortcuts.
+      To update, download it again, replace the folder and click reload on DeskSync.</p>
+  </section>
+
   <section id="privacy" class="band">
     <h2>Private by design</h2>
     <ul class="points">
@@ -71,7 +88,7 @@
       <div class="plan">
         <h3>Free</h3>
         <p class="price">$0</p>
-        <ul><li>Everything on one computer</li><li>Notes, read later, clipboard</li><li>Vault, backup codes, fill</li><li>Side panel, search, tags</li><li>No limit on notes, links or logins</li><li>200 clips, 10 templates, trash kept 30 days</li></ul>
+        <ul><li>Everything on one computer</li><li>Notes, read later, clipboard</li><li>Vault, backup codes, fill</li><li>Side panel, search, tags</li><li>20 notes, 20 logins, backup codes on 2 logins</li><li>5 site shortcuts, no limit on saved pages</li><li>200 clips, 10 templates, trash kept 30 days</li></ul>
       </div>
       <div class="plan soon">
         <h3>Pro <span class="tag">coming soon</span></h3>

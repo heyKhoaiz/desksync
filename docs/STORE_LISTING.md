@@ -12,7 +12,7 @@ that page at a public URL; the dashboard needs both.
 ## 1. Store listing tab
 
 **Name** (75 max)
-> DeskSync – Notes, Read Later, Clipboard & Vault
+> DeskSync: Notes, Logins & Backup Codes
 
 **Summary / short description** (132 max; it is also `description` in the manifest)
 > Keep notes, saved pages, copied text and logins in one private, searchable place. Works offline; sync is optional.
@@ -42,14 +42,18 @@ that page at a public URL; the dashboard needs both.
 > password that never leaves it. A copied password is cleared from the clipboard after 30 seconds.
 > Clipboard history is off until you turn it on, site by site, and it skips passwords and API keys.
 >
+> **Today first, your sites one click away.** Everything opens on what needs you today: pinned
+> items, unread pages and anything new. Beside it, the sites you open every day, as a row of icons;
+> + adds the page you are on.
+>
 > **Stays out of your way.** Works the moment it is installed, with no account. Keep it in the
 > side panel while you read. Search from the address bar by typing "ds". Light and dark themes.
 >
-> **Free, with Pro coming.** Every feature is free on one computer, with no limit on notes, saved
-> pages or logins. Free keeps the newest 200 captured clips, 10 templates, and the trash for 30
-> days. DeskSync Pro, coming soon as a paid plan, will add sync across your computers and the
-> Android app, and lift those limits. Join the waitlist at desksync.org. The vault stays end-to-end
-> encrypted: nobody but you can read it.
+> **Free, with Pro coming.** Every feature is free on one computer. Free keeps 20 notes, 20 logins,
+> backup codes on 2 logins, 5 site shortcuts, the newest 200 captured clips and 10 templates, with
+> no limit on saved pages; the trash keeps items for 30 days. DeskSync Pro, coming soon as a paid
+> plan, will add sync across your computers and the Android app. Join the waitlist at
+> desksync.org. The vault stays end-to-end encrypted: nobody but you can read it.
 
 **Images**
 
@@ -71,8 +75,9 @@ plain form with no brand marks.
 ## 2. Privacy practices tab
 
 **Single purpose**
-> DeskSync keeps the things you need while browsing (notes, saved pages, copied text and logins)
-> in one private, searchable place.
+> DeskSync is a personal workspace for browsing: it keeps the things you need while on the web
+> (notes, saved pages, copied text, logins and your everyday sites) in one private, searchable
+> place.
 
 **Permission justifications** (one box per permission)
 
@@ -89,7 +94,7 @@ plain form with no brand marks.
 | `clipboardWrite` | Copy buttons for notes, links, clips, passwords and backup codes. |
 | `offscreen` | Clears a copied password or backup code from the clipboard 30 seconds later. The service worker has no clipboard, so a hidden page does this, and only if the clipboard still holds what DeskSync copied. |
 | `sidePanel` | Lets the user keep DeskSync open beside the page instead of in the popup. |
-| `favicon` | Shows each saved page's site icon from Chrome's own cache, so nothing is fetched from the site. |
+| `favicon` | Shows the site icon of each saved page and site shortcut from Chrome's own cache, so nothing is fetched from the site. |
 | Optional host access (`*://*/*`) | Never requested at install. Asked for one site at a time, only when the user turns on clipboard capture for that site, or fills or inserts from the side panel (which has no activeTab). |
 | `omnibox` keyword "ds" | Search saved notes, pages and clips from the address bar. |
 
@@ -151,3 +156,5 @@ Certify all three:
 - [ ] `make store-check` passes (manifest limits, files, icons, no remote code, settings filled in)
 - [ ] `make zip` and upload `dist/desksync-extension.zip`
 - [ ] Version in `extension/manifest.json` raised above the last published one
+- [ ] Free's limits in `PLANS` (`extension/lib/client.js`) match the *Free, with Pro coming*
+      paragraph above and the site's Free column

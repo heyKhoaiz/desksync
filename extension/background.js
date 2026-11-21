@@ -4,7 +4,7 @@ importScripts('lib/supabase.js', 'config.js', 'lib/store.js', 'lib/client.js', '
 // skipSecrets: a key or token copied on an approved site is not recorded. On by
 // default, because clipboard history is stored as plain text.
 // unreadBadge: the icon shows how many Read later links are still unread.
-const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false, clearClipboard: true };
+const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, emailInGmail: false, clearClipboard: true };
 
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
@@ -95,6 +95,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'save-link') return saveTab({ url: info.linkUrl, title: info.linkUrl });
   if (info.menuItemId === 'save-note') {
     try {
+      // Free keeps a set number of notes (PLANS in lib/client.js): at it, the
+      // badge says no rather than the note going missing.
+      const max = (await plan.limits()).notes;
+      if ((await db.list('notes')).length >= max) return badge('×', '#dc2626');
       // Notes are plain text: the selection is stored as it is, not escaped.
       await db.insert('notes', { title: tab?.title || 'Clipped', body: withSource(info.selectionText, info.pageUrl || tab?.url), format: 'plain' });
       badge('✓');

@@ -44,9 +44,17 @@ async function currentUser() {
 // row level security refuses synced rows to an account without Pro). The
 // extension keeps the last answer in chrome.storage.local so it works offline.
 // ---------------------------------------------------------------------------
+// Free's caps on notes, logins, logins with backup codes (codeSets) and
+// shortcuts. The store listing and the site state them; change all three
+// together. Until Pro can be bought, the app says what Free keeps and how to
+// make room, and promises nothing about Pro.
+const FREE_CAPS_ON = true;
+const FREE_CAPS = FREE_CAPS_ON
+  ? { notes: 20, logins: 20, codeSets: 2, shortcuts: 5 }
+  : { notes: Infinity, logins: Infinity, codeSets: Infinity, shortcuts: Infinity };
 const PLANS = {
-  free: { name: 'free', sync: false, clips: 200, templates: 10, trashDays: 30 },
-  pro: { name: 'pro', sync: true, clips: Infinity, templates: Infinity, trashDays: 365 }
+  free: { name: 'free', sync: false, ...FREE_CAPS, clips: 200, templates: 10, trashDays: 30 },
+  pro: { name: 'pro', sync: true, notes: Infinity, logins: Infinity, codeSets: Infinity, shortcuts: Infinity, clips: Infinity, templates: Infinity, trashDays: 365 }
 };
 // The table is missing on a database without migration 004 (a self-hosted
 // project, say). Such a database sells nothing, so sync works as it always did.
@@ -109,6 +117,22 @@ function isOffline(e) {
 // 002 refuses format 'plain'. Either way the row is adjusted and sent again
 // rather than refused, and the user is told which migration to run.
 const MISSING_COLUMN = /Could not find the '([^']+)' column/i;
+
+// The vault's master password wrap (pw_*) and recovery key wrap (rk_*) are
+// settled separately: a group this device changed since its last sync (local
+// differs from _base) is kept, and the other comes from the server. So a
+// recovery key made here offline does not undo a password changed elsewhere.
+const WRAP_GROUPS = [['pw_salt', 'pw_wrap_iv', 'pw_wrap_ct'], ['rk_salt', 'rk_wrap_iv', 'rk_wrap_ct']];
+function mergeWraps(local, remote) {
+  const base = local._base || {};
+  const out = {};
+  for (const group of WRAP_GROUPS) {
+    const mine = group.some((k) => (local[k] ?? null) !== (base[k] ?? null));
+    for (const k of group) out[k] = (mine ? local : remote)[k] ?? null;
+  }
+  return out;
+}
+const sameWraps = (a, b) => VAULT_WRAP_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
 const FORMAT_CHECK = /notes_format_check/i;
 
 const sync = {
@@ -166,7 +190,8 @@ const sync = {
     return done(synced, true);
   },
 
-  // Returns false while this device and the account have different vaults.
+  // Returns false while vault items must not move: this device and the account
+  // have different vaults, or the vault's settings could not be sent.
   async _syncVaultMeta() {
     if (await store.vaultConflict()) return false;
     const local = await store.rawVaultMeta();
@@ -176,14 +201,25 @@ const sync = {
     if (!local) { await store.setVaultMeta(remote, { fromServer: true }); return true; }
     if (!remote) {
       if (local._dirty) {
-        const { error: e2 } = await sb.from('vault_meta').upsert(cleanRow(local));
-        if (e2) throw e2;
+        if (!(await this._sendVaultMeta(cleanRow(local)))) return false;
         await store.setVaultMeta(local, { fromServer: true });
+        return true;
+      }
+      // It was in the account and is gone: reset on another device. Keeping it
+      // here would upload old-key items into whatever vault comes next.
+      if (local._synced) {
+        await store.clearVault();
+        this._warn('vault-reset', 'Your vault was reset on another device. Set up a new one in the Vault.');
+        return false;
       }
       return true;
     }
     if (remote.salt === local.salt && remote.verifier_ct === local.verifier_ct) {
-      if (local._dirty) await store.setVaultMeta(local, { fromServer: true });
+      // The same vault. Its master password or recovery key may have changed,
+      // here or elsewhere: each keeps the side that changed it.
+      const merged = mergeWraps(local, remote);
+      if (!sameWraps(merged, remote) && !(await this._sendVaultMeta({ ...cleanRow(local), ...merged }))) return false;
+      if (local._dirty || !sameWraps(merged, local)) await store.setVaultMeta({ ...local, ...merged }, { fromServer: true });
       return true;
     }
     // A vault on each side, under different master passwords. Merging would leave
@@ -191,6 +227,19 @@ const sync = {
     await store.setVaultConflict(cleanRow(remote));
     this._warn('vault', 'This device and your account each have a vault — choose one in Settings');
     return false;
+  },
+
+  // False when the database is missing migration 005's columns: the vault's
+  // new settings stay here, and the rest of sync carries on.
+  async _sendVaultMeta(row) {
+    const { user_id, ...clean } = row;
+    const { error } = await sb.from('vault_meta').upsert(clean);
+    if (!error) return true;
+    if (!isOffline(error) && MISSING_COLUMN.test(error.message || '')) {
+      this._warn('col:vault', 'Vault changes are kept on this device: your database needs supabase/migrations/005_vault_recovery.sql');
+      return false;
+    }
+    throw error;
   },
 
   // Settles a vault conflict. 'account': the account's vault replaces this
@@ -214,6 +263,26 @@ const sync = {
     } else throw new Error('keep must be account or device');
     await store.setVaultConflict(null);
     return this.run();
+  },
+
+  // Forgot the master password, and no recovery key: the vault's items and
+  // settings go, on the server first and then here. Offline, nothing changes,
+  // so the account's copy cannot come back on the next sync.
+  // Holds the sync lock, so a sync already running cannot push this device's
+  // vault items, or pull the account's, between the two halves.
+  async resetVault() {
+    clearTimeout(this._soon);
+    const go = async () => {
+      if (await currentUser()) {
+        const { error } = await sb.from('vault_items').delete().not('id', 'is', null);
+        if (error) throw error;
+        const { error: e2 } = await sb.from('vault_meta').delete().not('user_id', 'is', null);
+        if (e2) throw e2;
+      }
+      await store.clearVault();
+    };
+    return typeof navigator !== 'undefined' && navigator.locks?.request
+      ? navigator.locks.request('desksync-sync', go) : go();
   },
 
   async _push(tables = SYNC_TABLES) {

@@ -110,6 +110,12 @@ input, textarea, select { font: inherit; color: inherit; }
 .signin-actions .ghost { border: 1px solid var(--line); color: var(--fg-2); }
 .signin-actions .ghost:hover { background: var(--hover); color: var(--fg); }
 .signin-form .msg { margin: 0; font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
+/* The code step, after Create account. */
+.code-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.code-note b { color: var(--fg); font-weight: 600; word-break: break-all; }
+.signin-form .code-in { font: 500 16px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .3em; text-align: center; height: 40px; }
+.code-other { align-self: flex-start; padding: 0; font-size: 11.5px; color: var(--fg-2); text-decoration: underline; }
+.code-other:hover { color: var(--fg); }
 .msg { min-height: 16px; margin: 10px 0 0; font-size: 11.5px; color: var(--danger); }
 
 /* ---------- App shell ---------- */
@@ -119,11 +125,19 @@ input, textarea, select { font: inherit; color: inherit; }
    a word under the icon: a row of six unlabelled glyphs made people hover each
    one to find Read later. The tools at the foot stay icon-only, with titles. */
 .rail { width: 48px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.rail .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--on-ink);
-  display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-bottom: 6px;
-  transition: opacity var(--fade); }
+/* The app icon: the arrow c and its crescent on a white tile (icons/logo.svg). */
+.rail .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--card); color: var(--fg);
+  /* lifted like the app icon: a soft shadow, no hairline */
+  box-shadow: 0 0 0 .5px rgb(0 0 0 / .1), 0 1px 2px rgb(0 0 0 / .1), 0 3px 8px rgb(0 0 0 / .08);
+  display: grid; place-items: center; margin-bottom: 6px; transition: opacity var(--fade); }
+.rail .mark svg { width: 34px; height: 34px; fill: currentColor; }
 /* .rail button:hover would otherwise repaint the mark as a plain round button */
-.rail .mark:hover, .rail .mark:focus-visible { background: var(--ink); color: var(--on-ink); opacity: .82; }
+.rail .mark:hover, .rail .mark:focus-visible { background: var(--card); color: var(--fg); opacity: .82; }
+.rail .mark:has(+ .plan-tag:not(.hidden)) { margin-bottom: 0; }
+.rail .plan-tag { width: auto; height: 16px; margin: -1px 0 6px; padding: 0 6px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; line-height: 16px;
+  display: block; background: var(--card); color: var(--fg-2); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .plan-tag:hover, .rail .plan-tag:focus-visible { background: var(--accent); color: #141414; box-shadow: none; }
 .rail .mark:active { opacity: .7; }
 .rail button { position: relative; width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; color: var(--fg-2);
@@ -254,6 +268,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .row-acts button .i { width: 15px; height: 15px; }
 .row-acts button:hover { background: var(--line); color: var(--fg); }
 .row-acts button[data-row-act="delete"]:hover { color: var(--danger); }
+/* While they show, the text ends in "…" before them instead of running
+   underneath, where half-faded letters read as garbage. Room for two buttons. */
+.row:not(.act):hover .body, .row:not(.act)[aria-selected="true"] .body,
+.row:not(.act):focus-within .body, .row.picked .body { padding-right: 46px; }
 /* The row has to be the positioning context, and tall enough not to clip them. */
 .row { position: relative; }
 /* An action row is a button already; it needs none of this. */
@@ -277,10 +295,9 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Under the action rows of a filter that is still empty: what goes here. */
 .empty.hint { padding: 16px 18px; font-size: 12px; line-height: 1.55; }
 
-.count { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between;
+/* What Enter does to the row you are on. Settings is the gear in the rail. */
+.count { flex: none; height: 28px; display: flex; align-items: center; justify-content: flex-end;
   padding: 0 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--fg-2); }
-.count button { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
-.count button:hover { color: var(--fg); }
 
 /* The editor can take the popup's whole width; the rail stays, so the types and
    settings are still one click away. */
@@ -648,6 +665,21 @@ input, textarea, select { font: inherit; color: inherit; }
 .gate input:focus { border-color: var(--link); }
 .gate button.primary { width: 100%; height: 34px; border-radius: 999px; background: var(--ink);
   color: var(--on-ink); font-size: 12.5px; font-weight: 500; }
+.gate button.primary:disabled { opacity: .4; cursor: default; }
+.gate button.primary.danger { background: var(--danger); color: var(--card); }
+.gate .msg { margin: 8px 0 0; font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
+.gate .gate-link { align-self: center; margin-top: 6px; padding: 2px 4px; font-size: 11.5px; color: var(--fg-2); text-decoration: underline; }
+.gate .gate-link:hover { color: var(--fg); }
+/* The recovery key, shown once. */
+.gate .rk { display: block; margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--hover);
+  font: 600 13px/1.6 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; overflow-wrap: normal; word-break: normal; user-select: all; }
+.gate .rk-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.gate .rk-actions button { flex: 1; height: 30px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2);
+  font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.gate .rk-actions button:hover { background: var(--hover); color: var(--fg); }
+.gate .rk-ok { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; font-size: 12px; cursor: pointer; }
+.gate .rk-ok input { width: auto; height: auto; margin: 0; }
+.gate input.rk-in { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
 
 /* ---------- Full-width screens: settings, trash ---------- */
 .screen { flex: 1; min-width: 0; background: var(--card); border-radius: var(--r);
@@ -729,7 +761,7 @@ input, textarea, select { font: inherit; color: inherit; }
 html.view-panel body, html.view-tab body { width: auto; height: 100vh; }
 html.view-tab body { max-width: 1200px; margin: 0 auto; }
 html.view-tab .mid { width: 360px; }
-.view-panel .ed-foot .hint, .view-panel .count span { display: none; }
+.view-panel .ed-foot .hint, .view-panel .count { display: none; }
 
 /* A side panel is tall and narrow, so the list and the pane stack: the list on
    top, what you picked underneath, both on screen at once. */
@@ -801,3 +833,76 @@ html.view-tab .mid { width: 360px; }
 .review-ask .ra-yes { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .review-ask .ra-no { color: var(--fg-2); }
 .review-ask .ra-no:hover { background: var(--hover); color: var(--fg); }
+
+/* ---------- Picking several rows ----------
+   The box sits where the row's dot is and takes its place on hover and while
+   anything is picked, so the list does not shift sideways. */
+.row .pick { display: none; flex: none; width: 16px; height: 16px; margin-top: 1px; border-radius: 4px;
+  border: 1.5px solid var(--fg-2); color: transparent; align-items: center; justify-content: center; }
+.row .pick .i { width: 11px; height: 11px; }
+.row:not(.act):hover .pick, .list.bulk .row:not(.act) .pick { display: inline-flex; }
+.row:not(.act):hover .pick ~ .bul, .row:not(.act):hover .pick ~ .fav,
+.list.bulk .row:not(.act) .bul, .list.bulk .row:not(.act) .fav { display: none; }
+.row .pick[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.row.picked, .row.picked:hover { background: var(--sel); }
+.row.picked .row-acts { background: linear-gradient(90deg, transparent, var(--sel) 16px); }
+
+.listhead .bulk-x { align-self: center; width: 22px; height: 22px; border-radius: 6px; color: var(--fg-2); font-size: 12px; }
+.listhead .bulk-x:hover { background: var(--hover); color: var(--fg); }
+.listhead .bulk-acts { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.listhead .bulk-b { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px;
+  border-radius: 6px; font-size: 11.5px; color: var(--fg-2); }
+.listhead .bulk-b .i { width: 13px; height: 13px; }
+.listhead .bulk-b .hash { font-weight: 600; }
+.listhead .bulk-b:hover { background: var(--hover); color: var(--fg); }
+.listhead .bulk-b.danger.armed { background: var(--danger); color: var(--card); }
+/* One line however narrow the list: "1 selected" never wraps, and below 380px
+   the buttons keep their icons and drop their words (the title says what each
+   does). An armed Delete keeps its words, since they ask the question. */
+.listhead { container-type: inline-size; }
+.listhead .where { white-space: nowrap; }
+.listhead .bulk-b { flex-shrink: 0; white-space: nowrap; }
+@container (max-width: 380px) {
+  .listhead .bulk-b:not(.armed) .bl { display: none; }
+  .listhead .bulk-b { padding: 0 5px; }
+}
+.listhead .bulk-tag { width: 90px; height: 22px; padding: 0 6px; font: inherit; font-size: 11.5px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+
+/* ---------- Shortcuts (the pane on Everything, nothing picked) ---------- */
+.qs-head .d-kind { color: var(--fg-2); }
+.qs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.qs-tile { position: relative; }
+.qs-open, .qs-add { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px 8px; border-radius: var(--r-row); color: var(--fg); transition: background var(--fade); }
+.qs-open:hover, .qs-open:focus-visible, .qs-add:hover:not(:disabled), .qs-add:focus-visible { background: var(--hover); }
+.qs-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / .05); }
+.qs-ic img { width: 24px; height: 24px; }
+.qs-add .qs-ic { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--fg-2); }
+.qs-add:disabled { opacity: .5; cursor: default; }
+.qs-name { max-width: 100%; font-size: 11.5px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-add .qs-name { color: var(--fg-2); }
+.qs-edit { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--fg-2); background: var(--card);
+  box-shadow: 0 0 0 1px var(--line); opacity: 0; transition: opacity var(--fade); }
+.qs-edit .i { width: 12px; height: 12px; }
+.qs-tile:hover .qs-edit, .qs-edit:focus-visible { opacity: 1; }
+/* A quiet pill under the grid, the same family as the editor's Start as chips. */
+.qs-manual { margin-top: 14px; height: 30px; padding: 0 12px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-2);
+  box-shadow: inset 0 0 0 1px var(--line); transition: background var(--fade), color var(--fade); }
+.qs-manual .i { width: 13px; height: 13px; }
+.qs-manual:hover, .qs-manual:focus-visible { background: var(--hover); color: var(--fg); }
+.qs-form { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-row);
+  display: flex; flex-direction: column; gap: 10px; }
+.qs-form label { display: block; font-size: 11.5px; color: var(--fg-2); margin-bottom: 4px; }
+.qs-form input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--fg); font: inherit; }
+.qs-form input:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+.qs-form-acts { display: flex; gap: 6px; align-items: center; }
+.qs-form-acts button { height: 30px; padding: 0 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; }
+.qs-form-acts .primary { background: var(--ink); color: var(--on-ink); }
+.qs-form-acts .ghost { border: 1px solid var(--line); color: var(--fg-2); }
+.qs-form-acts .danger { margin-left: auto; color: var(--danger); border-color: var(--danger-line); }
+.qs-form-acts .i { width: 14px; height: 14px; }

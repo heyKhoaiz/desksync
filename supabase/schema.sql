@@ -61,6 +61,14 @@ create table if not exists public.vault_meta (
   salt        text not null,      -- base64, 16 bytes
   verifier_iv text not null,      -- base64, 12 bytes
   verifier_ct text not null,      -- base64 AES-GCM ciphertext of the string 'desksync-ok'
+  -- The vault key, encrypted on the device by the master password (pw_*) and by
+  -- the recovery key (rk_*). Null on vaults made before migration 005.
+  pw_salt     text,
+  pw_wrap_iv  text,
+  pw_wrap_ct  text,
+  rk_salt     text,
+  rk_wrap_iv  text,
+  rk_wrap_ct  text,
   created_at  timestamptz not null default now()
 );
 

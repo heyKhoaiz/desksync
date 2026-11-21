@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "DeskSync – Notes, Read Later, Clipboard & Vault",
+  "name": "DeskSync: Notes, Logins & Backup Codes",
   "short_name": "DeskSync",
   "version": "0.3.0",
   "minimum_chrome_version": "116",
