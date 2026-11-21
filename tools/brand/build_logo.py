@@ -17,7 +17,10 @@ Writes:
     docs/brand/wordmark-stacked.svg, wordmark-stacked-dark.svg
     docs/brand/mark.svg                                      the arrow c alone
     extension/icons/logo.svg                                 the app icon
-    tools/brand/mark.json   the arrow c's outline, which tools/make_icons.py draws
+    tools/brand/mark.json   the icon mark's outline, which tools/make_icons.py draws
+
+The icon mark is the arrow c with a crescent ")" round its right side, so the
+pair reads as a D. The wordmark and docs/brand/mark.svg keep the plain c.
 """
 import json
 import math
@@ -45,12 +48,16 @@ CUT = 280                    # the top arm is cut off along this radius
 ADVANCE = 26                 # how far round the curve the arrow's tip reaches past the cut
 BARB = 0.5                   # how far each barb sticks out past the stroke, in stroke widths
 
-# The icon: the arrow c in ink on a white tile. A thin grey edge keeps the
-# tile's shape on a white toolbar; yellow on white would be too faint at 16px.
-BORDER = '#e0e0e0'
-BORDER_W = 1 / 64            # edge width, as a fraction of the side (1px at 16 and 48, 2px at 128)
+# The icon: the mark in ink on a white tile, lifted off the toolbar by a soft
+# shadow (tools/make_icons.py draws the PNGs the same way).
 TILE_R = 0.23                # corner radius, as a fraction of the side
-MARK_SIZE = 0.56             # the c's larger side, as a fraction of the tile
+MARK_SIZE = 0.62             # the icon mark's larger side, as a fraction of the tile
+
+# The crescent, as multiples of the c's half-width, round the centre of its bowl.
+ARC_IN, ARC_OUT = 1.23, 1.62  # inner and outer radius at its thickest
+ARC_FROM, ARC_TO = -46, 62    # degrees, y down, clockwise from 3 o'clock; the top end clears the arrow
+ARC_TAPER = 0.55              # how much it thins towards its ends (0 = even band)
+SOFTEN = 0.045                # corner rounding over the whole mark, in the same units
 
 
 class FlattenPen(BasePen):
@@ -151,6 +158,22 @@ def arrow_c(font):
     return unary_union([c, head]).simplify(0.4)
 
 
+def icon_mark(font, c):
+    """The arrow c plus a crescent on its right, every corner softened."""
+    x0, y0, x1, y1 = font.polygon('c').bounds
+    cx, cy, rx = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2
+    outer, inner, steps = [], [], 120
+    for i in range(steps + 1):
+        a = math.radians(ARC_FROM + (ARC_TO - ARC_FROM) * i / steps)
+        f = 1 - ARC_TAPER * abs(2 * i / steps - 1) ** 2
+        mid, half = (ARC_IN + ARC_OUT) / 2 * rx, (ARC_OUT - ARC_IN) / 2 * rx * f
+        outer.append((cx + (mid + half) * math.cos(a), cy + (mid + half) * math.sin(a)))
+        inner.append((cx + (mid - half) * math.cos(a), cy + (mid - half) * math.sin(a)))
+    shape = unary_union([c, Polygon(outer + inner[::-1])])
+    r = SOFTEN * rx      # open then close: rounds the outside corners, then the inside ones
+    return shape.buffer(-r).buffer(2 * r).buffer(-r).simplify(0.4)
+
+
 def poly_path(shape, dx=0, dy=0, k=1):
     out = []
     for g in getattr(shape, 'geoms', [shape]):
@@ -235,23 +258,34 @@ def main():
     }
 
     S = 128
-    k, dx, dy = mark_fit(c, S)
+    mark = icon_mark(font, c)
+    k, dx, dy = mark_fit(mark, S)
+    # Same look as tools/make_icons.py: a white-to-grey tile on a soft drop
+    # shadow, inset 6% a side to leave the shadow room, and the c shaded from a
+    # softer black to ink.
+    pad = S * 0.06
+    t = S - 2 * pad
     files[ROOT / 'extension' / 'icons' / 'logo.svg'] = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {S} {S}" role="img" aria-label="DeskSync">\n'
-        f'  <rect x="{BORDER_W * S / 2:g}" y="{BORDER_W * S / 2:g}" width="{S - BORDER_W * S:g}" height="{S - BORDER_W * S:g}" '
-        f'rx="{TILE_R * S - BORDER_W * S / 2:.2f}" fill="{WHITE}" stroke="{BORDER}" stroke-width="{BORDER_W * S:g}"/>\n'
-        f'  <path fill="{INK}" d="{poly_path(c, dx, dy, k)}"/>\n'
+        '  <defs>\n'
+        '    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f0f0ee"/></linearGradient>\n'
+        '    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3a3a"/><stop offset="1" stop-color="#141414"/></linearGradient>\n'
+        f'    <filter id="lift" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="{t * 0.025:.2f}" stdDeviation="{t * 0.035:.2f}" flood-opacity=".28"/>'
+        f'<feDropShadow dx="0" dy="0" stdDeviation="{t * 0.006:.2f}" flood-opacity=".18"/></filter>\n'
+        '  </defs>\n'
+        f'  <rect x="{pad:g}" y="{pad:g}" width="{t:g}" height="{t:g}" rx="{TILE_R * t:.2f}" fill="url(#tile)" filter="url(#lift)"/>\n'
+        f'  <path fill="url(#ink)" transform="translate({pad:g} {pad:g}) scale({t / S:g})" d="{poly_path(mark, dx, dy, k)}"/>\n'
         '</svg>\n')
 
     # Outline for tools/make_icons.py, centred and scaled to a unit square.
-    x0, y0, x1, y1 = c.bounds
+    x0, y0, x1, y1 = mark.bounds
     side = max(x1 - x0, y1 - y0)
     rings = [[[round((x - (x0 + x1) / 2) / side, 5), round((y - (y0 + y1) / 2) / side, 5)]
               for x, y in list(r.coords)[:-1]]
-             for g in getattr(c, 'geoms', [c]) for r in [g.exterior, *g.interiors]]
+             for g in getattr(mark, 'geoms', [mark]) for r in [g.exterior, *g.interiors]]
     files[ROOT / 'tools' / 'brand' / 'mark.json'] = json.dumps(
-        {'about': 'The arrow c, centred on 0,0, its larger side 1. Built by tools/brand/build_logo.py.',
-         'tile': WHITE, 'border': BORDER, 'border_w': BORDER_W, 'mark': INK, 'rings': rings}, separators=(',', ':')) + '\n'
+        {'about': 'The icon mark (arrow c and crescent), centred on 0,0, its larger side 1. Built by tools/brand/build_logo.py.',
+         'rings': rings}, separators=(',', ':')) + '\n'
 
     for p, text in files.items():
         p.write_text(text)

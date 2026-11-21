@@ -57,8 +57,8 @@ store-check: ext ## Check the build against the Chrome Web Store's rules before 
 admin: check-env ## Open the admin page on this computer: accounts, and giving Pro by hand
 	@python3 tools/admin.py
 
-icons: ## Regenerate the extension icons from tools/make_icons.py
-	@python3 tools/make_icons.py extension/icons
+icons: ## Regenerate the extension and Android app icons from tools/make_icons.py
+	@python3 tools/make_icons.py extension/icons mobile/android/app/src/main/res
 
 app: check-env ## Run the Android app on the connected phone
 	cd mobile && flutter run --dart-define-from-file=../.env
