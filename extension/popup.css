@@ -125,11 +125,18 @@ input, textarea, select { font: inherit; color: inherit; }
    a word under the icon: a row of six unlabelled glyphs made people hover each
    one to find Read later. The tools at the foot stay icon-only, with titles. */
 .rail { width: 48px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.rail .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--on-ink);
-  display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-bottom: 6px;
-  transition: opacity var(--fade); }
+/* The app icon: the arrow c on a white tile with a hairline edge (icons/logo.svg). */
+.rail .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--card); color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / .06);
+  display: grid; place-items: center; margin-bottom: 6px; transition: opacity var(--fade); }
+.rail .mark svg { width: 34px; height: 34px; fill: currentColor; }
 /* .rail button:hover would otherwise repaint the mark as a plain round button */
-.rail .mark:hover, .rail .mark:focus-visible { background: var(--ink); color: var(--on-ink); opacity: .82; }
+.rail .mark:hover, .rail .mark:focus-visible { background: var(--card); color: var(--fg); opacity: .82; }
+.rail .mark:has(+ .plan-tag:not(.hidden)) { margin-bottom: 0; }
+.rail .plan-tag { width: auto; height: 16px; margin: -1px 0 6px; padding: 0 6px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; line-height: 16px;
+  display: block; background: var(--card); color: var(--fg-2); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .plan-tag:hover, .rail .plan-tag:focus-visible { background: var(--accent); color: #141414; box-shadow: none; }
 .rail .mark:active { opacity: .7; }
 .rail button { position: relative; width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; color: var(--fg-2);
@@ -283,10 +290,9 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Under the action rows of a filter that is still empty: what goes here. */
 .empty.hint { padding: 16px 18px; font-size: 12px; line-height: 1.55; }
 
-.count { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between;
+/* What Enter does to the row you are on. Settings is the gear in the rail. */
+.count { flex: none; height: 28px; display: flex; align-items: center; justify-content: flex-end;
   padding: 0 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--fg-2); }
-.count button { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
-.count button:hover { color: var(--fg); }
 
 /* The editor can take the popup's whole width; the rail stays, so the types and
    settings are still one click away. */
@@ -750,7 +756,7 @@ input, textarea, select { font: inherit; color: inherit; }
 html.view-panel body, html.view-tab body { width: auto; height: 100vh; }
 html.view-tab body { max-width: 1200px; margin: 0 auto; }
 html.view-tab .mid { width: 360px; }
-.view-panel .ed-foot .hint, .view-panel .count span { display: none; }
+.view-panel .ed-foot .hint, .view-panel .count { display: none; }
 
 /* A side panel is tall and narrow, so the list and the pane stack: the list on
    top, what you picked underneath, both on screen at once. */
@@ -847,3 +853,41 @@ html.view-tab .mid { width: 360px; }
 .listhead .bulk-b.danger.armed { background: var(--danger); color: var(--card); }
 .listhead .bulk-tag { width: 90px; height: 22px; padding: 0 6px; font: inherit; font-size: 11.5px;
   border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+
+/* ---------- Shortcuts (the pane on Everything, nothing picked) ---------- */
+.qs-head .d-kind { color: var(--fg-2); }
+.qs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.qs-tile { position: relative; }
+.qs-open, .qs-add { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px 8px; border-radius: var(--r-row); color: var(--fg); transition: background var(--fade); }
+.qs-open:hover, .qs-open:focus-visible, .qs-add:hover:not(:disabled), .qs-add:focus-visible { background: var(--hover); }
+.qs-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / .05); }
+.qs-ic img { width: 24px; height: 24px; }
+.qs-add .qs-ic { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--fg-2); }
+.qs-add:disabled { opacity: .5; cursor: default; }
+.qs-name { max-width: 100%; font-size: 11.5px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-add .qs-name { color: var(--fg-2); }
+.qs-edit { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--fg-2); background: var(--card);
+  box-shadow: 0 0 0 1px var(--line); opacity: 0; transition: opacity var(--fade); }
+.qs-edit .i { width: 12px; height: 12px; }
+.qs-tile:hover .qs-edit, .qs-edit:focus-visible { opacity: 1; }
+/* A quiet pill under the grid, the same family as the editor's Start as chips. */
+.qs-manual { margin-top: 14px; height: 30px; padding: 0 12px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-2);
+  box-shadow: inset 0 0 0 1px var(--line); transition: background var(--fade), color var(--fade); }
+.qs-manual .i { width: 13px; height: 13px; }
+.qs-manual:hover, .qs-manual:focus-visible { background: var(--hover); color: var(--fg); }
+.qs-form { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-row);
+  display: flex; flex-direction: column; gap: 10px; }
+.qs-form label { display: block; font-size: 11.5px; color: var(--fg-2); margin-bottom: 4px; }
+.qs-form input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--fg); font: inherit; }
+.qs-form input:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+.qs-form-acts { display: flex; gap: 6px; align-items: center; }
+.qs-form-acts button { height: 30px; padding: 0 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; }
+.qs-form-acts .primary { background: var(--ink); color: var(--on-ink); }
+.qs-form-acts .ghost { border: 1px solid var(--line); color: var(--fg-2); }
+.qs-form-acts .danger { margin-left: auto; color: var(--danger); border-color: var(--danger-line); }
+.qs-form-acts .i { width: 14px; height: 14px; }

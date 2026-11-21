@@ -36,6 +36,15 @@
   const press = (key, opts = {}) =>
     q().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }));
   const rowTitles = () => $$('#list .row:not(.act) .t').map((e) => e.textContent);
+  // Titles under one section heading of the list (Today, Earlier…).
+  const sectionTitles = (name) => {
+    const out = []; let inside = false;
+    for (const li of $$('#list > li')) {
+      if (li.classList.contains('g-head')) { inside = li.textContent === name; continue; }
+      if (inside && li.matches('.row:not(.act)')) out.push(li.querySelector('.t')?.textContent);
+    }
+    return out;
+  };
   const actTitles = () => $$('#list .row.act .t').map((e) => e.textContent);
   const head = () => document.querySelector('.listhead')?.textContent ?? '';
   const chip = (t) => $$('[data-tag]').find((b) => b.dataset.tag === t);
@@ -880,7 +889,7 @@
     group('hover and selection, in every section');
     await reset();
     await unlockVault();
-    for (const f of ['all', 'today', 'note', 'link', 'clip', 'vault']) {
+    for (const f of ['all', 'note', 'link', 'clip', 'vault']) {
       document.querySelector(`.rail [data-f=${f}]`).click();
       await wait(200);
       const rows = $$('#list .row:not(.act)');
@@ -925,7 +934,7 @@
     await reset();
     {
       const heads = $$('#list .g-head').map((e) => e.textContent);
-      ok('pinned things are grouped under Pinned', heads[0] === 'Pinned' && heads.includes('Recent'), heads);
+      ok('pinned things lead the Today section', heads[0] === 'Today' && sectionTitles('Today').slice(0, 2).includes('Launch checklist'), [heads, sectionTitles('Today')]);
       const mark = rowFor('Launch checklist').querySelector('.mark-i.pinned .i');
       ok('a pinned row shows a filled pin', !!mark && getComputedStyle(mark).fill !== 'none', mark && getComputedStyle(mark).fill);
       ok('an unpinned row shows none', !rowFor('Grocery').querySelector('.mark-i.pinned'));
@@ -2063,7 +2072,68 @@
     state.notes = state.notes.filter((n) => !/^tpl/.test(n.id));
     document.getElementById('home').click();
     await wait(80);
+    ok('Free names its note, login and backup-code limits',
+      /Notes.*20/.test(planText) && /Logins.*20/.test(planText) && /backup codes.*2/.test(planText), planText.slice(0, 600));
+    // Twenty notes already: a new one does not open.
+    const realNotes = state.notes;
+    state.notes = Array.from({ length: 20 }, (_, i) => ({ id: 'cap' + i, title: 'N' + i, body: '', format: 'plain', tags: [] }));
+    newNote();
+    await wait(30);
+    ok('Free refuses a twenty-first note', !state.editing, state.editing);
+    state.notes = realNotes;
+    // Twenty logins already: the new-login form does not open.
+    await unlockVault();
+    const realVault = state.vault;
+    state.vault = Array.from({ length: 20 }, (_, i) => ({ id: 'lg' + i, title: 'L' + i }));
+    openVaultEditor(null);
+    ok('Free refuses a twenty-first login', !state.vEditing, state.vEditing);
+    // Two logins with codes: a third cannot take any.
+    state.vault = [{ id: 'a', codes: [{ code: '1' }] }, { id: 'b', codes: [{ code: '2' }] }];
+    ok('Free refuses backup codes on a third login', codeSetsFull('c') === true);
+    ok('but a login that already has codes can keep them', codeSetsFull('a') === false);
+    state.vault = realVault;
+    document.getElementById('home').click();
+    await wait(80);
     window.__plan = undefined;
+
+    // ================= SHORTCUTS =================
+    group('shortcuts');
+    await chrome.storage.local.set({ shortcuts: [{ title: '', url: 'https://www.facebook.com/' }] });
+    document.getElementById('home').click();
+    await wait(120);
+    ok('All with nothing picked shows the shortcuts', !!document.querySelector('#detail [data-shortcuts]'));
+    eq('a tile is named after its site', document.querySelector('.qs-tile .qs-name')?.textContent, 'Facebook');
+    eq('an address is made whole', shortcutUrl('claude.ai'), 'https://claude.ai/');
+    eq('and nonsense is refused', shortcutUrl('not a site'), null);
+    document.querySelector('.qs-manual').click();
+    await wait(60);
+    const scUrl = document.getElementById('qs-url');
+    scUrl.value = 'chatgpt.com'; scUrl.dispatchEvent(new Event('input'));
+    document.querySelector('.qs-form').requestSubmit();
+    await wait(120);
+    eq('a site added by hand is kept',
+      (await chrome.storage.local.get('shortcuts')).shortcuts.map((s) => s.url),
+      ['https://www.facebook.com/', 'https://chatgpt.com/']);
+    document.querySelector('#list [role=option]:not(.act)')?.click();
+    await wait(120);
+    ok('picking a row replaces them', !document.querySelector('#detail [data-shortcuts]'));
+    document.getElementById('home').click();
+    await wait(120);
+    ok('and All brings them back', !!document.querySelector('#detail [data-shortcuts]'));
+    // Free keeps five: the + tile says Pro, and adding by hand is refused.
+    window.__plan = 'free';
+    await loadPlan();
+    await chrome.storage.local.set({ shortcuts: ['a', 'b', 'c', 'd', 'e'].map((x) => ({ title: '', url: `https://${x}.com/` })) });
+    state.scForm = null;
+    await drawShortcuts();
+    eq('at five on Free, + says the limit is reached', document.querySelector('.qs-add .qs-name')?.textContent, 'Limit reached');
+    document.querySelector('.qs-manual').click();
+    await wait(60);
+    ok('and a sixth cannot be added by hand', !document.querySelector('.qs-form'));
+    window.__plan = undefined;
+    await loadPlan();
+    await chrome.storage.local.set({ shortcuts: [] });
+    state.scForm = null;
 
     // ================= THEME =================
     group('theme');
@@ -2097,24 +2167,23 @@
       document.activeElement.id === 'q', document.activeElement.id || document.activeElement.tagName);
 
     // ================= TODAY =================
-    // Pinned things, unread links, and notes and clips from the last day.
+    // The top of Everything: pinned things, unread links, and notes and clips
+    // from the last day. The rest is under Earlier.
     group('today');
     await reset();
-    document.querySelector('.rail [data-f=today]').click();
-    await wait(60);
-    ok('the rail has a Today filter', /Today/.test(head()), head());
-    ok('a pinned note is in it', rowTitles().includes('Launch checklist'), rowTitles());
-    ok('so are unread links', rowTitles().includes('Migrate to Manifest V3'), rowTitles());
-    ok('a link already read is not', !rowTitles().includes('RLS performance'), rowTitles());
-    ok('nor a clip from days ago', !rowTitles().some((t) => /Rosewood/.test(t)), rowTitles());
-    ok('Today offers the capture actions too', !!act('Save this tab'), actTitles());
-    ok('and the note composer', !document.getElementById('compose').classList.contains('hidden'));
-    press('1', { ctrlKey: true });
+    ok('the rail has no Today filter any more', !document.querySelector('.rail [data-f=today]'));
+    const todayHeads = $$('#list .g-head').map((e) => e.textContent);
+    ok('Everything opens on Today, then Earlier', todayHeads[0] === 'Today' && todayHeads.includes('Earlier'), todayHeads);
+    const todayRows = sectionTitles('Today');
+    ok('a pinned note is in it', todayRows.includes('Launch checklist'), todayRows);
+    ok('so are unread links', todayRows.includes('Migrate to Manifest V3'), todayRows);
+    ok('a link already read is not', !todayRows.includes('RLS performance'), todayRows);
+    ok('nor a clip from days ago', !todayRows.some((t) => /Rosewood/.test(t)), todayRows);
+    ok('and those are under Earlier', sectionTitles('Earlier').includes('RLS performance'), sectionTitles('Earlier'));
+    press('2', { ctrlKey: true });
     press('0', { ctrlKey: true });
     await wait(40);
-    ok('Ctrl+0 selects Today', /Today/.test(head()), head());
-    document.querySelector('.rail [data-f=all]').click();
-    await wait(40);
+    ok('Ctrl+0 goes to Everything', /Everything/.test(head()), head());
 
     // ================= SECRETS AND CODE =================
     group('secrets and code');
@@ -2285,7 +2354,7 @@
       document.getElementById('keyhint').textContent);
     ok('a link row shows its site icon, or the dot when there is none',
       !!$$('#list .row.k-link')[0]?.querySelector('.fav, .bul'));
-    ok('the rail filters are labelled', $$('.rail [data-f] .lbl').map((e) => e.textContent).join(',') === 'All,Today,Notes,Later,Clips,Vault',
+    ok('the rail filters are labelled', $$('.rail [data-f] .lbl').map((e) => e.textContent).join(',') === 'All,Notes,Later,Clips,Vault',
       $$('.rail [data-f] .lbl').map((e) => e.textContent));
     ok('the side panel button is hidden where there is no side panel', document.getElementById('to-panel').hidden);
     ok('the detail pane is not a live region any more', !document.getElementById('detail').hasAttribute('aria-live'));
@@ -2843,12 +2912,10 @@
     Object.assign(window.__DATA.notes.find((n) => n.id === 'n3'),
       { updated_at: new Date(Date.now() - 5 * 86400000).toISOString() });
     await loadNotes();
-    document.querySelector('.rail [data-f=today]').click();
-    await wait(60);
-    ok('an unfinished list is in Today', rowTitles().includes('Grocery'), rowTitles());
-    ok('an old note with no tasks is not', !rowTitles().includes('Old rich-text note'), rowTitles());
     document.querySelector('.rail [data-f=all]').click();
-    await wait(40);
+    await wait(60);
+    ok('an unfinished list is in Today', sectionTitles('Today').includes('Grocery'), sectionTitles('Today'));
+    ok('an old note with no tasks is not', !sectionTitles('Today').includes('Old rich-text note'), sectionTitles('Today'));
 
     // ================= PICKING SEVERAL =================
     group('picking several rows');

@@ -163,9 +163,10 @@ const TYPES = {
 };
 const TYPE_KEYS = Object.keys(TYPES);
 
-// Today is not a type: it is what you are likely to want right now. Pinned
-// things, links you have not read yet, task lists not yet done, and notes and
-// clips from the last day.
+// Today is not a type, so it is not a filter either: it is the first section of
+// Everything, what you are likely to want right now. Pinned things, links you
+// have not read yet, task lists not yet done, and notes and clips from the last
+// day. The rest follows under Earlier.
 // The vault stays out of it; a login is not something you have "for today".
 const DAY_MS = 86400000;
 function isToday(i) {
@@ -178,10 +179,9 @@ function isToday(i) {
 }
 function inFilter(i) {
   if (state.filter === 'all') return true;
-  if (state.filter === 'today') return isToday(i);
   return i.kind === state.filter;
 }
-const filterLabel = (f) => TYPES[f]?.label || (f === 'today' ? 'Today' : null);
+const filterLabel = (f) => TYPES[f]?.label || null;
 
 // ---------- A colour per note ----------
 // `notes.color` has been in the schema since the first migration, defaulting to
@@ -240,7 +240,6 @@ async function boot() {
   }
   updateOfflineBar();
   maybeAskForReview().catch(() => {});
-  if (state.startOnToday && !params.get('q') && !params.get('open')) state.filter = 'today';
   draw();
   $('#q').focus();
   await startAction();
@@ -278,6 +277,7 @@ async function loadPlan(refresh = false) {
   state.limits = PLANS[state.plan];
   state.planUntil = (await chrome.storage.local.get('plan')).plan?.until || null;
   state.needsPro = !!state.email && state.plan !== 'pro';
+  $('#plan-tag')?.classList.toggle('hidden', state.plan !== 'free');
 }
 
 // Sign in or create an account, from Settings. Reloading runs boot() again,
@@ -544,9 +544,9 @@ function score(item, query) {
 function matches(raw) {
   const { text, tags } = parseQuery(raw);
   const pool = state.items.filter((i) => inFilter(i) && tags.every((t) => i.tags.includes(t)));
-  // Today mixes kinds, so it is grouped by kind like search results are. The
-  // sort is stable: pinned first and newest first still hold inside each group.
-  if (!text && state.filter === 'today') return pool.sort((a, b) => TYPE_KEYS.indexOf(a.kind) - TYPE_KEYS.indexOf(b.kind));
+  // Everything opens on Today, then Earlier. The sort is stable: pinned first
+  // and newest first still hold inside each section.
+  if (!text && state.filter === 'all') return pool.sort((a, b) => isToday(b) - isToday(a));
   // In the vault, the logins for the page you are on come first: that is
   // almost always the one you opened DeskSync for.
   if (!text && state.filter === 'vault' && state.tabHost) {
@@ -570,7 +570,7 @@ function matches(raw) {
 // way to create one. Each filter keeps the action that makes its own kind.
 function actions() {
   const f = state.filter;
-  const forAll = f === 'all' || f === 'today';
+  const forAll = f === 'all';
   const list = [];
 
   if (state.vaultState !== 'open' && (forAll || f === 'vault')) {
@@ -632,11 +632,13 @@ function draw() {
   }
 
   let last = null;
+  const hasToday = state.filter === 'all' && state.rows.some((r) => r.kind !== 'action' && isToday(r));
   state.rows.forEach((item, idx) => {
     const group = item.kind === 'action' ? null
       : text ? TYPES[item.kind].label
       // Pinned things are kept at the top already; now the list says why.
-      : state.filter === 'all' ? (item.pinned ? 'Pinned' : 'Recent')
+      // Everything: Today first, then Earlier; Recent when nothing is for today.
+      : state.filter === 'all' ? (isToday(item) ? 'Today' : hasToday ? 'Earlier' : 'Recent')
       : state.filter === 'vault' && state.tabHost && hostMatches(item.row?.url, state.tabHost) ? `On ${state.tabHost}`
       : TYPES[item.kind].label;
     if (group && group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
@@ -690,7 +692,9 @@ function draw() {
   // fill the pane with, say, the vault's password form before you asked; the
   // welcome is the better first thing to see. Arrow keys or the mouse pick a
   // row as usual.
-  if (libraryEmpty() && !raw && !state.editing && !state.vEditing && !state.picked) {
+  // Everything, before you pick a row, shows your shortcuts in the pane rather
+  // than opening the newest item for you (drawShortcuts).
+  if ((libraryEmpty() || state.filter === 'all') && !raw && !state.editing && !state.vEditing && !state.picked) {
     setActive(-1, false);
     showInPane(null);
     return;
@@ -712,7 +716,6 @@ function emptyRow(text, tags) {
 // than "Nothing here yet", which is true and no help.
 const EMPTY = {
   all: 'Nothing here yet.',
-  today: 'Nothing for today. Pinned items, unread links, and notes and clips from the last day show up here.',
   note: 'No notes yet. Type in “Take a note…” above, or press Alt+Shift+K on any page.',
   link: 'Nothing to read later. Alt+Shift+S saves the tab you are on; right-click a link to save that instead.',
   clip: 'No clips yet. Save the clipboard above to keep what you copied. To keep everything you copy on a site, turn on capture in Settings.',
@@ -726,7 +729,7 @@ const EMPTY = {
 // later, Clipboard or Vault it would be offering to make the wrong kind of thing.
 // The text is kept when it is hidden, so switching type and back loses nothing.
 function drawCompose() {
-  const makesNotes = state.filter === 'all' || state.filter === 'note' || state.filter === 'today';
+  const makesNotes = state.filter === 'all' || state.filter === 'note';
   $('#compose').classList.toggle('hidden', !makesNotes);
 }
 
@@ -1195,6 +1198,7 @@ const setFilter = safe(async (f) => {
   if (state.vEditing) closeVaultEditor();
   if (state.screen) setScreen(null);
   state.filter = f; state.active = 0;
+  if (f === 'all') state.picked = false;   // back to the shortcuts
   clearPicks({ redraw: false });
   draw();
   $('#q').focus();
@@ -1214,10 +1218,14 @@ function band(kindKey, title, sub, plain) {
 
 function drawDetail(item) {
   const pane = $('#detail');
+  // A redraw (a clip arriving, a sync) must not wipe a shortcut being typed.
+  if (!item && state.scForm && pane.querySelector('[data-shortcuts]') && state.filter === 'all') return;
+  if (item) state.scForm = null;
   pane.replaceChildren();
 
   if (!item) {
     if (libraryEmpty() && !$('#q').value.trim()) return drawWelcome();
+    if (state.filter === 'all' && !$('#q').value.trim()) return drawShortcuts();
     pane.append(el('div', { class: 'sc-empty' }, 'Nothing selected.'));
     return;
   }
@@ -1683,6 +1691,115 @@ function drawWelcome() {
   );
 }
 
+// ---------- Shortcuts ----------
+// The sites you open every day, as a grid of icons in the pane on Everything.
+// + adds the tab you are on; Add by hand takes a name and an address; the
+// pencil on a tile edits or removes it. Kept in this browser
+// (chrome.storage.local), in the order they were added.
+const shortcuts = {
+  async list() { return (await chrome.storage.local.get('shortcuts')).shortcuts || []; },
+  async save(list) { await chrome.storage.local.set({ shortcuts: list }); }
+};
+
+// "facebook.com" or "https://facebook.com/x" → a full https:// address, or null.
+function shortcutUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(s) ? s : 'https://' + s);
+    return /^https?:$/.test(u.protocol) && u.hostname.includes('.') ? u.href : null;
+  } catch { return null; }
+}
+// A tile's label: the name given, else the site without www. and .com.
+const shortcutName = (s) => {
+  if (s.title?.trim()) return s.title.trim();
+  const n = hostOf(s.url).replace(/\.[a-z]+$/i, '');
+  return n.charAt(0).toUpperCase() + n.slice(1);
+};
+
+async function drawShortcuts() {
+  const list = await shortcuts.list();
+  const pane = $('#detail');
+  // The list may have been picked from while storage was read.
+  if (state.picked || state.editing || state.filter !== 'all') return;
+  pane.replaceChildren();
+  const here = state.tabUrl ? new URL(state.tabUrl).origin + '/' : null;
+  const haveHere = here && list.some((s) => new URL(s.url).origin === new URL(here).origin);
+
+  const tile = (s, i) => el('div', { class: 'qs-tile', role: 'listitem' },
+    el('button', { class: 'qs-open', title: s.url, onclick: () => chrome.tabs.create({ url: s.url }) },
+      el('span', { class: 'qs-ic' }, el('img', { src: faviconFor(s.url), alt: '' })),
+      el('span', { class: 'qs-name' }, shortcutName(s))),
+    el('button', { class: 'qs-edit', title: `Edit ${shortcutName(s)}`, 'aria-label': `Edit ${shortcutName(s)}`,
+      onclick: () => { state.scForm = { i, title: s.title || '', url: s.url }; drawShortcuts(); } }, icon('edit')));
+
+  // At Free's limit the tile stays clickable, to say why it cannot add.
+  const full = list.length >= state.limits.shortcuts;
+  const add = el('button', { class: 'qs-tile qs-add', disabled: (!full && (!here || haveHere)) || null,
+    title: full ? `Free keeps ${state.limits.shortcuts} shortcuts. Remove one to add another` : !here ? 'Open a web page to add it' : haveHere ? `${state.tabHost} is already here` : `Add ${state.tabHost}`,
+    onclick: safe(async () => {
+      if (shortcutsFull(list.length)) return;
+      await shortcuts.save([...list, { title: '', url: here }]);
+      toast(`Added ${state.tabHost}`);
+      drawShortcuts();
+    }) },
+    el('span', { class: 'qs-ic' }, icon('plus')),
+    el('span', { class: 'qs-name' }, full ? 'Limit reached'
+      : here && !haveHere ? state.tabHost.replace(/^www\./, '') : 'This site'));
+
+  pane.append(
+    el('header', { class: 'd-band plain qs-head', 'data-shortcuts': '' },
+      el('div', { class: 'd-kind' }, 'Shortcuts'),
+      el('h2', { class: 'd-title' }, 'Your sites'),
+      el('p', { class: 'd-sub' }, (list.length ? 'One click to open. + adds the page you are on.'
+        : 'Sites you open every day, one click away. + adds the page you are on.') +
+        (Number.isFinite(state.limits.shortcuts) ? ` Free keeps ${state.limits.shortcuts}.` : ''))),
+    el('div', { class: 'd-body' },
+      el('div', { class: 'qs-grid', role: 'list' }, ...list.map(tile), add),
+      state.scForm ? shortcutForm(list)
+        : el('button', { class: 'qs-manual', onclick: () => { if (shortcutsFull(list.length)) return; state.scForm = { i: -1, title: '', url: '' }; drawShortcuts(); } },
+          icon('edit'), 'Type an address')));
+  if (state.scForm) pane.querySelector(state.scForm.i < 0 ? '#qs-url' : '#qs-title')?.focus();
+}
+
+function shortcutForm(list) {
+  const f = state.scForm;
+  const field = (id, label, key, ph) => {
+    const input = el('input', { id, value: f[key], placeholder: ph, spellcheck: 'false', autocomplete: 'off' });
+    input.addEventListener('input', () => { f[key] = input.value; });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    return el('div', {}, el('label', { for: id }, label), input);
+  };
+  const close = () => { state.scForm = null; drawShortcuts(); };
+  const save = safe(async () => {
+    const url = shortcutUrl(f.url);
+    if (!url) return toast('Type an address, like facebook.com');
+    if (f.i < 0 && shortcutsFull(list.length)) return;
+    const next = [...list];
+    const row = { title: f.title.trim(), url };
+    if (f.i < 0) next.push(row); else next[f.i] = row;
+    await shortcuts.save(next);
+    close();
+  });
+  const removeIt = safe(async () => {
+    await shortcuts.save(list.filter((_, j) => j !== f.i));
+    toast(`Removed ${shortcutName(list[f.i])}`);
+    close();
+  });
+  return el('form', { class: 'qs-form', onsubmit: (e) => { e.preventDefault(); save(); } },
+    el('b', {}, f.i < 0 ? 'Add a site' : 'Edit shortcut'),
+    field('qs-url', 'Address', 'url', 'facebook.com'),
+    field('qs-title', 'Name (optional)', 'title', 'Shown under the icon'),
+    el('div', { class: 'qs-form-acts' },
+      el('button', { type: 'submit', class: 'primary' }, 'Save'),
+      el('button', { type: 'button', class: 'ghost', onclick: close }, 'Cancel'),
+      f.i >= 0 ? el('button', { type: 'button', class: 'ghost danger', onclick: removeIt }, icon('trash'), 'Remove') : null));
+}
+
 // ---------- Item actions ----------
 const togglePin = async (item) => {
   if (!item.id) return toast('Write something first, then pin it');
@@ -1711,6 +1828,7 @@ async function openLink(item) {
   chrome.tabs.create({ url: item.row.url });
 }
 async function clipToNote(item) {
+  if (notesFull()) return;
   await db.insert('notes', { title: item.row.content.slice(0, 40), body: item.row.content, format: 'plain', tags: item.tags });
   toast('Saved as note'); loadNotes();
 }
@@ -1886,6 +2004,7 @@ function refreshAfterTags(item) {
 // width: starting a note means writing, and writing wants the room. Selecting an
 // existing note keeps the list beside it, so arrowing through notes still works.
 function newNote(seed = '', tags = [], { wide = false } = {}) {
+  if (notesFull()) return;
   const row = { id: null, title: '', body: seed, format: 'plain', tags: [...tags], color: 'yellow', pinned: false };
   openEditor({ kind: 'note', id: null, row, title: '', sub: '', tags: [...tags], when: null, isNew: true, wide });
   // Text that came from the composer never passed through an input event in the
@@ -2252,13 +2371,25 @@ function startFromTemplate(n) {
   area.scrollTop = 0;
 }
 
-// Free keeps 10 templates, Pro any number (PLANS in lib/client.js). Templates
-// over the limit, from a Pro that lapsed, stay: only new ones are refused.
+// Free caps notes, logins, logins with backup codes, shortcuts and templates
+// (PLANS in lib/client.js). Anything over a limit, from a Pro that lapsed,
+// stays: only new ones are refused, with a toast that says what Free keeps and
+// how to make room. Nothing about Pro until it can be bought.
+function atLimit(key, have, what, room = 'Delete one to add another.') {
+  if (have < state.limits[key]) return false;
+  toast(`Free keeps ${state.limits[key]} ${what}. ${room}`);
+  return true;
+}
+const notesFull = () => atLimit('notes', state.notes.length, 'notes');
+const loginsFull = () => atLimit('logins', state.vault.length, 'logins');
+const shortcutsFull = (have) => atLimit('shortcuts', have, 'shortcuts');
+const codeSetsFull = (exceptId) =>
+  atLimit('codeSets', state.vault.filter((v) => v.id !== exceptId && v.codes?.length).length,
+    'logins with backup codes', 'Remove the codes from another login to add these.');
+
 function templatesFull(exceptId) {
   const n = state.notes.filter((x) => x.id !== exceptId && (x.tags || []).includes(TEMPLATE_TAG)).length;
-  if (n < state.limits.templates) return false;
-  toast(`Free keeps ${state.limits.templates} templates. Pro has no limit — see Settings → Plan`);
-  return true;
+  return atLimit('templates', n, 'templates', 'Turn one back into a plain note to add another.');
 }
 
 function toggleTemplate() {
@@ -2893,6 +3024,7 @@ async function writeDraft(final, itemOverride) {
 // longer use, and the old value is gone. So the write happens when you say so.
 function openVaultEditor(item, prefill = null) {
   if (state.vaultState !== 'open') return drawVaultGate();
+  if (!item && loginsFull()) return;
   const row = item ? item.row : { title: '', url: '', username: '', password: '', notes: '', tags: [] };
   state.vEditing = item || { kind: 'vault', id: null, row, tags: [], isNew: true, fromClip: prefill?.fromClip || null };
   state.vDraft = {
@@ -2961,6 +3093,8 @@ function drawVaultEditor() {
       password: d.password, notes: d.notes, tags: d.tags,
       codes: backupCodes.merge(d.codes, d.pasted, { replace: d.replaceCodes && d.codes.length > 0 }) };
     if (!payload.codes.length) delete payload.codes;
+    // Adding codes to a login that had none counts against Free's limit.
+    if (payload.codes && !item.row?.codes?.length && codeSetsFull(item.id)) return;
     const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(payload));
     if (item.id) await db.update('vault_items', item.id, { iv, ciphertext });
     else await db.insert('vault_items', { iv, ciphertext });
@@ -3049,9 +3183,11 @@ async function importPasswords(csv) {
   if (!state.vaultKey) return toast('Unlock the vault first');
   const { logins, skipped, error } = sites.loginsFromCsv(csv);
   if (error) return toast(error);
-  let added = 0, same = 0;
+  let added = 0, same = 0, over = 0;
   for (const l of logins) {
     if (state.vault.some((v) => sites.sameLogin(v, l))) { same++; continue; }
+    // Free stops at its login limit; the rest are counted, not dropped silently.
+    if (state.vault.length >= state.limits.logins) { over++; continue; }
     const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(l));
     await db.insert('vault_items', { iv, ciphertext });
     state.vault.push({ ...l, id: 'pending' });
@@ -3061,6 +3197,7 @@ async function importPasswords(csv) {
   const bits = [`${plural(added, 'login')} imported`];
   if (same) bits.push(`${same} already here`);
   if (skipped) bits.push(`${skipped} empty skipped`);
+  if (over) bits.push(`${over} over Free's ${state.limits.logins}-login limit`);
   toast(bits.join(' · '));
   if (state.screen === 'settings') drawSettings();
 }
@@ -3415,7 +3552,7 @@ function setScreen(name) {
 }
 $$('.rail [data-screen]').forEach((b) =>
   b.addEventListener('click', () => setScreen(state.screen === b.dataset.screen ? null : b.dataset.screen)));
-$('#to-settings').addEventListener('click', () => setScreen('settings'));
+$('#plan-tag').addEventListener('click', () => setScreen('settings'));
 $('#screen').addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !(e.target.tagName === 'INPUT')) { e.preventDefault(); setScreen(null); }
 });
@@ -3697,8 +3834,6 @@ function drawSettings() {
         : [el('div', { class: 'sc-row' }, el('span', { class: 'lab' }, el('span', {}, 'No tags yet. Add one from any item.')))]),
 
       el('div', { class: 'sc-sec' }, 'Everyday'),
-      row('Start on Today', 'Open on pinned items, unread links and what is new since yesterday, instead of everything.',
-        toggle('startOnToday', 'Start on Today')),
       row('Unread count on the icon', 'How many Read later links you have not opened yet.',
         toggle('unreadBadge', 'Unread count on the icon')),
       row('Emails open in Gmail', 'A note that starts with To: has an Open in mail button. Off: your mail app. On: a Gmail compose window.',
@@ -3746,7 +3881,7 @@ function drawSettings() {
 
 // ---------- Plan ----------
 // What this plan includes, in Settings. Free is the whole app on one device;
-// Pro adds sync and lifts the three limits (PLANS in lib/client.js).
+// Pro, coming soon, adds sync (PLANS in lib/client.js).
 function planRows(row) {
   const pro = state.plan === 'pro';
   const until = state.planUntil ? ` until ${new Date(state.planUntil).toLocaleDateString()}` : '';
@@ -3756,17 +3891,26 @@ function planRows(row) {
   const n = (v) => (Number.isFinite(v) ? String(v) : 'No limit');
   const templates = state.notes.filter((x) => (x.tags || []).includes(TEMPLATE_TAG)).length;
   return [
-    row(pro ? `Pro${until}` : 'Free',
+    // Free never expires (plan.name in lib/client.js only ends Pro), and says so.
+    row(pro ? `Pro${until}` : 'Free — no time limit',
       pro ? 'Sync across your computers and your phone, with no limits.'
-        : 'Every feature on this device. Pro adds sync across your computers, the Android app, and no limits below.',
+        : 'Every feature on this device for as long as you like. Pro, coming soon, adds sync across your computers and the Android app.',
       about),
     row('Captured clips kept', pro ? 'Every clip you copy is kept.'
       : `The newest ${state.limits.clips} captured clips. Clips you save yourself and pinned clips are always kept.`,
       el('span', { class: 'val' }, n(state.limits.clips))),
+    row('Notes', `${plural(state.notes.length, 'note')} saved.`,
+      el('span', { class: 'val' }, n(state.limits.notes))),
+    row('Logins', 'Usernames and passwords in the vault.',
+      el('span', { class: 'val' }, n(state.limits.logins))),
+    row('Logins with backup codes', 'Each login can hold a full set of codes.',
+      el('span', { class: 'val' }, n(state.limits.codeSets))),
+    row('Shortcuts', 'Sites on the Everything screen, one click away.',
+      el('span', { class: 'val' }, n(state.limits.shortcuts))),
     row('Templates', `${plural(templates, 'template')} saved.`,
       el('span', { class: 'val' }, n(state.limits.templates))),
     row('Trash kept for', 'Then deleted for good.', el('span', { class: 'val' }, trashKept())),
-    row('Never limited', 'Notes, links, logins, backup codes, export, encryption and auto-lock.', null)
+    row('Never limited', 'Read-later links, export, encryption and auto-lock.', null)
   ];
 }
 
@@ -4051,7 +4195,7 @@ async function captureOrigins() {
   return origins;
 }
 
-const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, startOnToday: false, emailInGmail: false, clearClipboard: true };
+const DEFAULT_SETTINGS = { clipCapture: false, skipSecrets: true, unreadBadge: true, emailInGmail: false, clearClipboard: true };
 
 async function saveSettings(patch) {
   const { settings } = await chrome.storage.local.get('settings');
@@ -4116,8 +4260,9 @@ qEl.addEventListener('keydown', (e) => {
     e.preventDefault();
     setFilter(['all', ...TYPE_KEYS][+e.key - 1]);
   } else if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+    // Today used to be its own filter on Ctrl+0; it is the top of Everything now.
     e.preventDefault();
-    setFilter('today');
+    setFilter('all');
   }
 });
 
@@ -4229,6 +4374,7 @@ const goHome = safe(async () => {
   $('#q').value = '';
   state.filter = 'all';
   state.active = 0;
+  state.picked = false;   // back to the shortcuts
   draw();
   $('#list').scrollTop = 0;
   $('#q').focus();

@@ -2,7 +2,7 @@
 """Generate the extension's toolbar/store icons.
 
 The icon is the logo's arrow c (the c of "desksync", its top arm ending in a
-refresh arrow) in yellow on an ink tile. The c's outline comes from
+refresh arrow) in ink on a white tile with a thin grey edge. The c's outline comes from
 tools/brand/mark.json, which tools/brand/build_logo.py writes from the Inter
 typeface; this script only needs Pillow. extension/icons/logo.svg is the same
 icon as a vector.
@@ -26,11 +26,24 @@ def mark_size(size):
     return 0.70 if size <= 16 else 0.56
 
 
+# The Chrome Web Store wants the 128px icon drawn at 96x96, with 16px of
+# transparent padding a side (developer.chrome.com/docs/webstore/images).
+# The toolbar sizes fill their square.
+STORE_PAD = {128: 16}
+
+
 def icon(size):
+    pad = STORE_PAD.get(size, 0)
+    if pad:
+        out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        out.paste(icon(size - 2 * pad), (pad, pad))
+        return out
     n = size * SS
     img = Image.new('RGBA', (n, n), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * TILE_R, fill=MARK['ink'])
+    edge = max(1, round(size * MARK['border_w'])) * SS     # at least one real pixel
+    d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * TILE_R, fill=MARK['border'])
+    d.rounded_rectangle([edge, edge, n - 1 - edge, n - 1 - edge], radius=n * TILE_R - edge, fill=MARK['tile'])
 
     # Even-odd fill: draw each ring into a mask, flipping what's inside.
     k = mark_size(size) * n

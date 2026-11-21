@@ -141,8 +141,8 @@ const localStore = {
 };
 // Plans, as in lib/client.js. The demo is Pro unless window.__plan says 'free'.
 const PLANS = {
-  free: { name: 'free', sync: false, clips: 200, templates: 10, trashDays: 30 },
-  pro: { name: 'pro', sync: true, clips: Infinity, templates: Infinity, trashDays: 365 }
+  free: { name: 'free', sync: false, notes: 20, logins: 20, codeSets: 2, shortcuts: 5, clips: 200, templates: 10, trashDays: 30 },
+  pro: { name: 'pro', sync: true, notes: Infinity, logins: Infinity, codeSets: Infinity, shortcuts: Infinity, clips: Infinity, templates: Infinity, trashDays: 365 }
 };
 const plan = {
   async name() { return window.__plan === 'free' ? 'free' : 'pro'; },

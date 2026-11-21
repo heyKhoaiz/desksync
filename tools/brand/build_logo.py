@@ -45,7 +45,10 @@ CUT = 280                    # the top arm is cut off along this radius
 ADVANCE = 26                 # how far round the curve the arrow's tip reaches past the cut
 BARB = 0.5                   # how far each barb sticks out past the stroke, in stroke widths
 
-# The icon: the arrow c on an ink tile.
+# The icon: the arrow c in ink on a white tile. A thin grey edge keeps the
+# tile's shape on a white toolbar; yellow on white would be too faint at 16px.
+BORDER = '#e0e0e0'
+BORDER_W = 1 / 64            # edge width, as a fraction of the side (1px at 16 and 48, 2px at 128)
 TILE_R = 0.23                # corner radius, as a fraction of the side
 MARK_SIZE = 0.56             # the c's larger side, as a fraction of the tile
 
@@ -235,8 +238,9 @@ def main():
     k, dx, dy = mark_fit(c, S)
     files[ROOT / 'extension' / 'icons' / 'logo.svg'] = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {S} {S}" role="img" aria-label="DeskSync">\n'
-        f'  <rect width="{S}" height="{S}" rx="{TILE_R * S:.2f}" fill="{INK}"/>\n'
-        f'  <path fill="{YELLOW}" d="{poly_path(c, dx, dy, k)}"/>\n'
+        f'  <rect x="{BORDER_W * S / 2:g}" y="{BORDER_W * S / 2:g}" width="{S - BORDER_W * S:g}" height="{S - BORDER_W * S:g}" '
+        f'rx="{TILE_R * S - BORDER_W * S / 2:.2f}" fill="{WHITE}" stroke="{BORDER}" stroke-width="{BORDER_W * S:g}"/>\n'
+        f'  <path fill="{INK}" d="{poly_path(c, dx, dy, k)}"/>\n'
         '</svg>\n')
 
     # Outline for tools/make_icons.py, centred and scaled to a unit square.
@@ -247,7 +251,7 @@ def main():
              for g in getattr(c, 'geoms', [c]) for r in [g.exterior, *g.interiors]]
     files[ROOT / 'tools' / 'brand' / 'mark.json'] = json.dumps(
         {'about': 'The arrow c, centred on 0,0, its larger side 1. Built by tools/brand/build_logo.py.',
-         'ink': INK, 'mark': YELLOW, 'rings': rings}, separators=(',', ':')) + '\n'
+         'tile': WHITE, 'border': BORDER, 'border_w': BORDER_W, 'mark': INK, 'rings': rings}, separators=(',', ':')) + '\n'
 
     for p, text in files.items():
         p.write_text(text)

@@ -44,9 +44,17 @@ async function currentUser() {
 // row level security refuses synced rows to an account without Pro). The
 // extension keeps the last answer in chrome.storage.local so it works offline.
 // ---------------------------------------------------------------------------
+// Free's caps on notes, logins, logins with backup codes (codeSets) and
+// shortcuts. The store listing and the site state them; change all three
+// together. Until Pro can be bought, the app says what Free keeps and how to
+// make room, and promises nothing about Pro.
+const FREE_CAPS_ON = true;
+const FREE_CAPS = FREE_CAPS_ON
+  ? { notes: 20, logins: 20, codeSets: 2, shortcuts: 5 }
+  : { notes: Infinity, logins: Infinity, codeSets: Infinity, shortcuts: Infinity };
 const PLANS = {
-  free: { name: 'free', sync: false, clips: 200, templates: 10, trashDays: 30 },
-  pro: { name: 'pro', sync: true, clips: Infinity, templates: Infinity, trashDays: 365 }
+  free: { name: 'free', sync: false, ...FREE_CAPS, clips: 200, templates: 10, trashDays: 30 },
+  pro: { name: 'pro', sync: true, notes: Infinity, logins: Infinity, codeSets: Infinity, shortcuts: Infinity, clips: Infinity, templates: Infinity, trashDays: 365 }
 };
 // The table is missing on a database without migration 004 (a self-hosted
 // project, say). Such a database sells nothing, so sync works as it always did.
