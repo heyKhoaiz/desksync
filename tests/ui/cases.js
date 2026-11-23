@@ -2142,7 +2142,7 @@
     await chrome.storage.local.set({ shortcuts: ['a', 'b', 'c', 'd', 'e'].map((x) => ({ title: '', url: `https://${x}.com/` })) });
     state.scForm = null;
     await drawShortcuts();
-    eq('at five on Free, + says the limit is reached', document.querySelector('.qs-add .qs-name')?.textContent, 'Limit reached');
+    eq('at five on Free, + says the limit is reached', document.querySelector('.qs-add .qs-name')?.textContent, '5 of 5');
     document.querySelector('.qs-manual').click();
     await wait(60);
     ok('and a sixth cannot be added by hand', !document.querySelector('.qs-form'));

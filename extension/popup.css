@@ -9,7 +9,7 @@
   --ground: #e7e7e4;          /* the grey the panels float on */
   --card: #fff;               /* a panel */
   --fg: #141414;
-  --fg-2: #70706b;
+  --fg-2: #62625d;            /* 4.5:1 or better on every light surface, the grey ground included */
   --line: #ebebe7;
   --hover: #f5f5f2;           /* a row under the mouse */
   --sel: #e8e8e2;             /* the selected row: clearly more than hover */
@@ -22,7 +22,7 @@
   /* One colour per content type. Used for the dot in a row, in the detail
      header and in the trash — never as the only way to tell them apart. */
   --note: #ffd84d;
-  --link: #3d7bfa;
+  --link: #2563eb;            /* 4.5:1 on white, as link text */
   --clip: #19bf7a;
   --vault: #ff8a3d;
 
@@ -148,7 +148,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .rail [data-f] { width: 46px; height: 40px; border-radius: 11px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 2px; }
 .rail [data-f] .i { width: 16px; height: 16px; }
-.rail .lbl { font-size: 9.5px; font-weight: 600; line-height: 1; letter-spacing: .01em; }
+.rail .lbl { font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: .01em; }
 .rail .sm .i { width: 16px; height: 16px; }
 .rail .badge { position: absolute; top: 0; right: -1px; min-width: 15px; height: 15px; padding: 0 3px;
   border-radius: 99px; background: var(--ink); color: var(--on-ink);
@@ -341,6 +341,11 @@ input, textarea, select { font: inherit; color: inherit; }
 .d-body .v { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-body .wrap { white-space: pre-wrap; word-break: break-word; }
+.d-body .v.txt { font-family: inherit; font-size: 13px; }   /* words, not an address or a value to copy */
+/* Plain-text clips read like a note, in the UI font; code keeps the mono box below. */
+.d-body .prose { font-size: 13.5px; line-height: 1.6; }
+.d-body .prose p { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
+.d-body .prose p:last-child { margin-bottom: 0; }
 /* Code and commands keep their spacing and get a box, so a command is easy to
    check before it is pasted into a terminal. */
 .d-body .code { display: block; margin: 0; padding: 10px 12px; border-radius: 9px; background: var(--hover);
@@ -775,6 +780,25 @@ html.view-tab .mid { width: 360px; }
   html.view-panel .detail, html.view-tab .detail { grid-column: 2; grid-row: 2; }
   html.view-panel .screen, html.view-tab .screen { grid-column: 2; grid-row: 1 / 3; }
   html.view-panel #app.wide .detail, html.view-tab #app.wide .detail { grid-row: 1 / 3; }
+  /* The list takes only the height its rows need, up to 46%, so a short list
+     leaves the rest to the pane below instead of an empty white card. */
+  html.view-panel #app, html.view-tab #app { grid-template-rows: auto minmax(0, 1fr); }
+  html.view-panel .mid, html.view-tab .mid { max-height: 46vh; }
+  /* With nothing picked, the pane below only holds the shortcuts, which need a
+     row or two of tiles: the list gets the room that would sit empty there. */
+  html.view-panel #app:has(#detail [data-shortcuts]) .mid,
+  html.view-tab #app:has(#detail [data-shortcuts]) .mid { max-height: max(46vh, calc(100vh - 300px)); }
+  html.view-panel .listcard, html.view-tab .listcard { flex: 0 1 auto; }
+  html.view-panel .list, html.view-tab .list { flex: 0 1 auto; }
+}
+
+/* The side panel puts the rail on its right: the content sits next to the page
+   and the rail at the panel's outer edge. Popup and full tab keep it left. */
+html.view-panel #app { flex-direction: row-reverse; }
+@media (max-width: 699px) {
+  html.view-panel #app { grid-template-columns: minmax(0, 1fr) auto; }
+  html.view-panel .rail { grid-column: 2; }
+  html.view-panel .mid, html.view-panel .detail, html.view-panel .screen { grid-column: 1; }
 }
 
 /* A short popup (Chrome zoomed in gives it fewer pixels than 560) keeps the
