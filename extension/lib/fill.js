@@ -13,7 +13,11 @@
 // the username now, the password on the next page) it fills the username
 // alone, but only into a field marked as a login username, never an ordinary
 // email box such as a newsletter signup.
-function fillForm(username, password) {
+//
+// With a 2FA code (the login has a setup key), a page asking for the code (no
+// password field on screen, a box marked for a one-time code) gets the code: in
+// one box, or a digit in each when the site draws one box per digit.
+function fillForm(username, password, otp = '') {
   const shown = (el) => el.getClientRects().length > 0 && !el.disabled && !el.readOnly;
   const setValue = (el, value) => {
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
@@ -26,6 +30,24 @@ function fillForm(username, password) {
   // A password field on screen but switched off is a form that is not ready
   // (or locked), not the first step of a sign-in: nothing is filled there.
   const pwOnScreen = [...document.querySelectorAll('input[type=password]')].some((i) => i.getClientRects().length > 0);
+  if (!pw && !pwOnScreen && otp) {
+    const label = (i) => `${i.name} ${i.id} ${i.autocomplete} ${i.placeholder} ${i.getAttribute('aria-label') || ''}`;
+    const codeLike = (i) => /^(text|tel|number)$/.test(i.type) &&
+      (i.autocomplete === 'one-time-code' || /otp|totp|2fa|mfa|one.?time|verif|auth.?code|security.?code|\bcode\b|token|\bpin\b/i.test(label(i)));
+    // One box per digit: a run of single-character boxes, as many as the code has digits.
+    const singles = inputs.filter((i) => /^(text|tel|number)$/.test(i.type) && +i.maxLength === 1);
+    if (singles.length === otp.length) {
+      singles.forEach((box, n) => setValue(box, otp[n]));
+      singles[singles.length - 1].focus();
+      return { filled: 1, foundPassword: false, otp: true };
+    }
+    const box = inputs.find((i) => i.autocomplete === 'one-time-code') || inputs.find(codeLike);
+    if (box) {
+      setValue(box, otp);
+      box.focus();
+      return { filled: 1, foundPassword: false, otp: true };
+    }
+  }
   if (!pw && !pwOnScreen) {
     const userField = inputs.find((i) => /^(text|email|tel)$/.test(i.type) &&
       (i.autocomplete === 'username' || /user|login|account|identifier/i.test(`${i.name} ${i.id}`)));

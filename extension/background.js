@@ -1,5 +1,5 @@
 // Service worker: read-later saving (context menu + shortcut), clipboard capture, vault auto-lock.
-importScripts('lib/supabase.js', 'config.js', 'lib/store.js', 'lib/client.js', 'lib/crypto.js', 'lib/detect.js', 'lib/sites.js', 'lib/fill.js');
+importScripts('lib/supabase.js', 'config.js', 'lib/store.js', 'lib/client.js', 'lib/crypto.js', 'lib/detect.js', 'lib/sites.js', 'lib/fill.js', 'lib/health.js');
 
 // skipSecrets: a key or token copied on an approved site is not recorded. On by
 // default, because clipboard history is stored as plain text.
@@ -153,7 +153,12 @@ const inject = (tabId, func, args = []) => chrome.scripting.executeScript({ targ
   .then(([r]) => r?.result);
 
 async function fillLogin(tabId, login) {
-  const r = await inject(tabId, fillForm, [login.username || '', login.password || '']);
+  // The current 2FA code goes along for a login with a setup key; fillForm only
+  // uses it on a page asking for a code, so the shortcut also does that step.
+  const key = health.parseOtp(login.otp);
+  const otp = key ? (await health.otpCode(key)).code : '';
+  const r = await inject(tabId, fillForm, [login.username || '', login.password || '', otp]);
+  if (r?.otp) return badge('✓');
   if (r?.usernameOnly) { badge('1/2'); return inject(tabId, pageNotice, ['Username filled. Continue, then press Alt+Shift+L again for the password.']); }
   if (!r?.foundPassword) return inject(tabId, pageNotice, ['No sign-in form found on this page.']);
   badge('✓');

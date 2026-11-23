@@ -30,7 +30,7 @@
         s.onload = res; s.onerror = () => rej(new Error('could not load ' + src));
         document.head.append(s);
       });
-      for (const src of ['fixtures.js', '../../extension/lib/plaintext.js', '../../extension/lib/detect.js', '../../extension/lib/tags.js', '../../extension/lib/codes.js', '../../extension/lib/sites.js', '../../extension/lib/fill.js',
+      for (const src of ['fixtures.js', '../../extension/lib/plaintext.js', '../../extension/lib/detect.js', '../../extension/lib/tags.js', '../../extension/lib/codes.js', '../../extension/lib/health.js', '../../extension/lib/words.js', '../../extension/lib/sites.js', '../../extension/lib/fill.js',
         '../../extension/lib/tasks.js', '../../extension/lib/format.js', '../../extension/lib/editor.js']) await load(src);
 
       // Setting the scene, for the store screenshots (docs/store/):

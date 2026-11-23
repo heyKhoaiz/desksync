@@ -69,6 +69,18 @@ CASES = {
     'login form below a newsletter box': (
         '<input id="n" type="text" name="newsletter_email"><hr><input id="l" type="text" name="login"><input id="p" type="password">',
         2, True, {'n': '', 'l': 'USER', 'p': 'PASS'}),
+    '2FA step: a one-time-code box gets the code': (
+        '<input id="c" type="text" inputmode="numeric" autocomplete="one-time-code">', 1, False, {'c': '123456'}),
+    '2FA step: a box named for the code': (
+        '<input id="c" type="tel" name="totp" placeholder="6-digit code">', 1, False, {'c': '123456'}),
+    '2FA step: one box per digit': (
+        ''.join(f'<input id="d{n}" type="text" maxlength="1">' for n in range(6)), 1, False,
+        {f'd{n}': str(n + 1) for n in range(6)}),
+    'a shipping box is not a 2FA box': (
+        '<input id="s" type="text" name="shipping">', 0, False, {'s': ''}),
+    'a login form still gets the login, not the code': (
+        '<input name="username" type="text"><input name="password" type="password">',
+        2, True, {'username': 'USER', 'password': 'PASS'}),
 }
 
 (work / 'expected.json').write_text(json.dumps(
@@ -84,7 +96,7 @@ for (const [name, html] of Object.entries(CASES)) {
   const host = document.getElementById('case');
   host.innerHTML = html;
   let r;
-  try { r = fillForm('USER', 'PASS'); } catch (e) { r = { error: String(e) }; }
+  try { r = fillForm('USER', 'PASS', '123456'); } catch (e) { r = { error: String(e) }; }
   const values = {};
   for (const i of host.querySelectorAll('input')) values[i.id || i.name] = i.value;
   out.push(JSON.stringify({ name, filled: r.filled, foundPassword: r.foundPassword, values }));

@@ -90,6 +90,7 @@ test-ext: ## Run the extension's offline-sync, plain-text, secret-detection, tas
 	@node tests/format.test.js
 	@node tests/tags.test.js
 	@node tests/codes.test.js
+	@node tests/health.test.js
 	@node tests/vaultkeys.test.js
 	@node tests/sites.test.js
 	@./tests/fillform.test.sh
