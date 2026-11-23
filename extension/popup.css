@@ -428,22 +428,25 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Why a typed name cannot be added, or that it will be shortened. */
 .tag-pop .tag-hint { padding: 6px 8px 4px; font-size: 11px; color: var(--fg-2); line-height: 1.4; }
 .tag-pop button + .tag-hint { border-top: 1px solid var(--line); margin-top: 3px; }
-.d-tags .t { height: 23px; padding: 0 3px 0 9px; border-radius: 999px; background: var(--hover);
+.d-tags .t { height: 24px; padding: 0 3px 0 9px; border-radius: 999px; background: var(--hover);
   font-size: 11.5px; display: flex; align-items: center; gap: 3px; }
 /* Removing a tag: the × says so in red when you point at it, the same red as
    Delete everywhere else. A grey circle on a tinted chip could not be seen,
    and read as any other button. 18px, because 16 was hard to land on. */
-.d-tags .t .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+.d-tags .t .x { position: relative; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
   color: var(--fg-2); font-size: 14px; line-height: 1;
   transition: background var(--fade), color var(--fade); }
 .d-tags .t .x:hover, .d-tags .t .x:focus-visible {
   background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+/* Drawn at 18px, but the click lands anywhere in 24px: the minimum target size
+   (WCAG 2.5.8) without a bigger circle crowding the chip. */
+.d-tags .t .x::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; }
 .d-tags .t .x:active { background: color-mix(in srgb, var(--danger) 26%, transparent); }
-.d-tags .add { height: 23px; padding: 0 10px; border-radius: 999px; font-size: 11.5px;
+.d-tags .add { height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11.5px;
   color: var(--fg-2); border: 1px dashed var(--line); }
 .d-tags .add:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-2); }
 .d-tags .add:disabled { cursor: default; border-style: solid; opacity: .7; }
-.d-tags input { height: 23px; width: 116px; padding: 0 10px; border-radius: 999px;
+.d-tags input { height: 24px; width: 116px; padding: 0 10px; border-radius: 999px;
   border: 1px solid var(--link); background: transparent; outline: none; font-size: 11.5px; }
 .tg-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
@@ -930,3 +933,148 @@ html.view-panel #app { flex-direction: row-reverse; }
 .qs-form-acts .ghost { border: 1px solid var(--line); color: var(--fg-2); }
 .qs-form-acts .danger { margin-left: auto; color: var(--danger); border-color: var(--danger-line); }
 .qs-form-acts .i { width: 14px; height: 14px; }
+
+/* ---------- Password health and 2FA codes ----------
+   Worked out on the decrypted logins in this browser. Weak is the danger red,
+   fair is muted, strong is the clip green; reuse gets the warning icon. */
+.row .mark-i.risk { color: var(--danger); }   /* hides under the row buttons, like the others */
+.pw-health { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 2px 0 10px;
+  font-size: 11.5px; color: var(--fg-2); }
+.pw-health:empty { display: none; }
+.pw-st { padding: 1px 8px; border-radius: 999px; font-weight: 600; font-size: 11px; line-height: 18px; }
+.pw-st.weak { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.pw-st.fair { background: var(--hover); color: var(--fg); }
+.pw-st.strong { background: color-mix(in srgb, var(--clip) 16%, transparent); color: color-mix(in srgb, var(--clip) 60%, var(--fg)); }
+.pw-reuse { display: inline-flex; align-items: flex-start; gap: 5px; color: var(--danger); line-height: 1.4; }
+.pw-reuse .i { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+.d-body .v.otp { font-size: 17px; font-weight: 600; letter-spacing: .06em; color: var(--fg); }
+.otp-left { min-width: 26px; text-align: right; font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.otp-left.soon { color: var(--danger); font-weight: 600; }
+.d-body .field.notes { flex-direction: column; align-items: stretch; gap: 4px; }
+.d-body .field.notes .wrap { margin: 0; }
+.v-pw .pw-show + .pw-show { margin-left: -2px; }
+/* Generator options, under the password while editing. */
+.gen-opts { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11.5px; color: var(--fg-2); }
+.gen-opts input[type="range"] { flex: 1; min-width: 60px; width: auto; padding: 0; border: 0; accent-color: var(--ink); }
+.gen-opts .gen-n { min-width: 18px; font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
+.v-form .gen-opts label.inline { align-items: center; margin-left: 4px; }
+.v-form .gen-opts label.inline input { margin-top: 0; accent-color: var(--ink); }
+.v-form .pw-health { padding: 6px 0 0; }
+.d-body .field:has(+ .pw-health) { border-bottom: 0; padding-bottom: 2px; }
+.d-body .pw-health { border-bottom: 1px solid var(--line); }
+.gen-modes { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--hover); flex: none; }
+.gen-mode { height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.gen-mode[aria-pressed="true"] { background: var(--card); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.gen-opts .gen-l { margin-left: 4px; }
+/* The master password's strength, centred like the rest of the gate. */
+.gate .master-meter { justify-content: center; padding: 2px 0 2px; min-height: 22px; text-align: left; }
+.gate .gate-link.suggest { margin: 0 0 10px; color: var(--link); }
+
+/* ---------- Settings: sections beside the page, and the plan card ---------- */
+.screen { container-type: inline-size; }
+.sc-main { flex: 1; min-height: 0; display: flex; }
+.sc-main .sc-body { flex: 1; min-width: 0; }
+.sc-nav { width: 150px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px;
+  border-right: 1px solid var(--line); overflow-y: auto; }
+.sc-nav button { text-align: left; padding: 7px 10px; border-radius: 9px; font-size: 12.5px; color: var(--fg-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-nav button:hover { background: var(--hover); color: var(--fg); }
+.sc-nav button[aria-current="true"] { background: var(--sel); color: var(--fg); font-weight: 600; }
+@container (max-width: 560px) { .sc-nav { display: none; } }
+
+.pl-card { margin: 8px 16px 6px; padding: 12px 14px; border-radius: 12px; background: var(--hover); display: flex; flex-direction: column; gap: 12px; }
+.pl-head { display: flex; align-items: center; gap: 12px; }
+.pl-name { flex: 1; min-width: 0; }
+.pl-name b { display: block; font-weight: 600; }
+.pl-name span { display: block; font-size: 11.5px; color: var(--fg-2); margin-top: 1px; line-height: 1.45; }
+.pl-head button.act { height: 30px; padding: 0 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--ink); color: var(--on-ink); flex: none; }
+.pl-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.pl-meter { display: flex; flex-direction: column; gap: 5px; }
+.pl-top { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-2); }
+.pl-top b { color: var(--fg); font-weight: 600; }
+.pl-bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.pl-bar i { display: block; height: 100%; background: var(--ink); border-radius: 2px; }
+.pl-meter.full .pl-bar i { background: var(--danger); }
+.pl-foot { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--fg-2); }
+
+/* ---------- Quick actions as one row of small buttons ----------
+   Inline boxes in the list, so they share a line while the rows after them
+   (block boxes) start below. Keyboard selection works as before. */
+.row.act .t-short { display: none; }
+.list.acts-row .row.act {
+  display: inline-flex; vertical-align: top; justify-content: center; gap: 6px;
+  width: calc((100% - (var(--acts) - 1) * 6px) / var(--acts)); height: 30px; margin: 6px 6px 6px 0; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--card); font-size: 12px; font-weight: 500;
+}
+.list.acts-row .row.act.act-last { margin-right: 0; }
+.list.acts-row .row.act .t, .list.acts-row .row.act .where, .list.acts-row .row.act .kbd { display: none; }
+.list.acts-row .row.act .t-short { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list.acts-row .row.act .i { width: 13px; height: 13px; flex: none; }
+.list.acts-row .row.act:hover { background: var(--hover); }
+.list.acts-row .row.act[aria-selected="true"] { background: var(--sel); border-color: var(--sel); }
+.list.acts-row .row.act:disabled, .list.acts-row .row.act[aria-disabled="true"] { opacity: .5; }
+
+/* Pinned things, under the shortcuts. */
+.qs-pinned { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.qs-pinned-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 2px 6px; }
+.qs-pinned-head h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.qs-pinned-head span { font-size: 11.5px; color: var(--fg-2); }
+.qs-pin { display: flex; align-items: center; gap: 8px; border-radius: var(--r-row); }
+.qs-pin:hover { background: var(--hover); }
+.qs-pin-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px; text-align: left; }
+.qs-pin-open .bul { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.qs-pin-open .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.qs-pin-open .t.mono { font: 400 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+.qs-pin-copy { flex: none; height: 26px; padding: 0 10px; margin-right: 6px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; font-weight: 500; }
+.qs-pin-copy:hover { background: var(--card); }
+.qs-pin-n { flex: none; margin-right: 10px; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- Vault login: one card of values, an alert for reuse ---------- */
+.risk-n { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; margin-left: 6px;
+  border-radius: 999px; background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger);
+  font-size: 11px; font-weight: 600; }
+.risk-n .i { width: 11px; height: 11px; }
+.d-body .v-card { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
+.d-body .vf { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; }
+.d-body .vf + .vf, .d-body .pw-health + .vf { border-top: 1px solid var(--line); }
+.d-body .vf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.d-body .vf-main .k { font-size: 11px; }
+.d-body .vf-v { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-body .vf-v.pw { font: 600 14px/1.4 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em; }
+.d-body .vf-v.otp { font: 700 20px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em; }
+.d-body .v-card .pw-health { border-bottom: 0; padding: 0 12px 9px; margin-top: -3px; }
+.d-body .v-card .pw-health span:not(.pw-st) { font-size: 11.5px; }
+.d-body .pw-show { width: 32px; height: 32px; border-radius: 9px; }
+.d-body .vf .pw-show:last-child { background: var(--hover); color: var(--fg); }
+.otp-ring { --p: 1; width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: conic-gradient(var(--fg) calc(var(--p) * 360deg), var(--line) 0); }
+.otp-ring > span { width: 22px; height: 22px; border-radius: 50%; background: var(--card); display: grid; place-items: center;
+  font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.otp-ring.soon { background: conic-gradient(var(--danger) calc(var(--p) * 360deg), var(--line) 0); }
+.otp-ring.soon > span { color: var(--danger); }
+.d-body .v-alert { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--card)); color: color-mix(in srgb, var(--danger) 70%, var(--fg)); }
+.d-body .v-alert > .i { width: 16px; height: 16px; flex: none; align-self: flex-start; margin-top: 2px; }
+.v-alert-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v-alert-t b { font-weight: 600; }
+.v-alert-t span { font-size: 12px; }
+.v-alert-btn { flex: none; height: 28px; padding: 0 12px; border-radius: 999px; background: var(--danger); color: var(--card); font-size: 11.5px; font-weight: 600; }
+.d-body .v-notes { padding: 9px 12px; }
+.d-body .v-notes .k { font-size: 11px; }
+.d-body .v-notes .wrap { margin: 2px 0 0; }
+.d-foot .primary .fill-l { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A two- or three-way choice in Settings (Theme). */
+.seg { display: inline-flex; flex: none; padding: 2px; border-radius: 10px; background: var(--hover); }
+.seg button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.seg button .i { width: 14px; height: 14px; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+
+/* Web addresses in a note: link-coloured, opened with Ctrl/Cmd+click. */
+.ed-rich .url { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent);
+  text-underline-offset: 2px; }
+:root[data-theme="dark"] .ed-rich .url { color: #8ab4f8; }
+.ed-rich.mod .url { cursor: pointer; text-decoration-color: currentColor; }

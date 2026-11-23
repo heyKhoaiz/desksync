@@ -459,9 +459,14 @@ function buildItems() {
     });
   }
   // Vault titles are inside the ciphertext, so a locked vault has nothing to list.
+  // Weak and reused passwords are worked out here, on the decrypted items.
+  const reuse = health.reused(state.vault);
   for (const v of state.vault) {
+    const weak = v.password && health.strength(v.password).level === 'weak';
+    const shared = reuse.get(v.id)?.length || 0;
     items.push({
       kind: 'vault', id: v.id, row: v, when: v.updated_at || null,
+      risk: shared ? `Password also used on ${shared} other login${shared === 1 ? '' : 's'}` : weak ? 'Weak password' : null,
       title: v.title || v.url || 'Untitled',
       // How many backup codes are left, where you would look for a login.
       sub: [v.username || hostOf(v.url), backupCodes.summary(v.codes).text].filter(Boolean).join(' · '),
@@ -584,21 +589,22 @@ function actions() {
   if (state.vaultState !== 'open' && (forAll || f === 'vault')) {
     list.push({ action: 'vault', icon: 'lock',
       title: state.vaultState === 'setup' ? 'Set up your vault' : 'Unlock the vault',
+      short: 'Vault',
       sub: 'Saved logins are hidden until you do' });
   }
   if (forAll || f === 'link') {
-    list.push({ action: 'tab', icon: 'bookmark', title: 'Save this tab',
+    list.push({ action: 'tab', icon: 'bookmark', title: 'Save this tab', short: 'Save tab',
       where: state.tabHost || 'no page', sub: state.tabHost || 'No page to save',
       kbd: 'Alt+Shift+S', disabled: !state.tabHost });
   }
   if (forAll || f === 'clip') {
-    list.push({ action: 'clip', icon: 'clip', title: 'Save the clipboard',
+    list.push({ action: 'clip', icon: 'clip', title: 'Save the clipboard', short: 'Clipboard',
       sub: 'Adds the clipboard as a clip' });
   }
   // Only under the Vault filter: adding a login by hand is rarer than the rest,
   // and Everything is already four rows deep.
   if (state.vaultState === 'open' && f === 'vault') {
-    list.push({ action: 'login', icon: 'key', title: 'New login', sub: 'Save a username and password' });
+    list.push({ action: 'login', icon: 'key', title: 'New login', short: 'New login', sub: 'Save a username and password' });
   }
   return list.map((a) => ({ ...a, kind: 'action', tags: [] }));
 }
@@ -663,6 +669,10 @@ function draw() {
   }
 
   const acts = list.querySelectorAll('.row.act');
+  // Two or more actions sit side by side as small buttons, not a row each: three
+  // full-width rows at the top of Everything pushed your own things down.
+  list.classList.toggle('acts-row', acts.length >= 2);
+  list.style.setProperty('--acts', String(acts.length || 1));
   if (acts.length) {
     acts[0].classList.add('act-first');
     acts[acts.length - 1].classList.add('act-last');
@@ -761,6 +771,11 @@ function drawHead(text, tags) {
     T ? el('span', { class: 'dot', style: `background:${T.color}` }) : null,
     el('span', { class: 'where' }, where),
     el('span', { class: 'n' }, text ? (n === 1 ? '1 match' : `${n} matches`) : plural(n, 'item')),
+    // Under Vault, how many logins have a weak or reused password, at a glance.
+    state.filter === 'vault' && state.items.some((i) => i.risk)
+      ? el('span', { class: 'risk-n', title: 'Logins with a weak or reused password: marked in the list' }, icon('alert'),
+          `${state.items.filter((i) => i.risk).length} to fix`)
+      : null,
     narrowed && n && state.filter !== 'vault'
       // Labelled, like Clear beside it: a list icon alone did not say "copy".
       ? el('button', { class: 'copy-list', id: 'copy-list', title: 'Copy what is listed here, as text to paste anywhere',
@@ -819,10 +834,12 @@ function rowFor(item, idx, query) {
     // so repeating it here cost four rows of a list that only shows about ten.
     return el('li', {
       class: 'row act', id: 'r' + idx, role: 'option', 'aria-selected': 'false', 'data-i': idx,
+      title: item.title + (item.kbd ? ` (${item.kbd})` : ''), 'aria-label': item.title,
       onclick: () => clickRow(idx)
     },
       icon(item.icon || 'plus'),
       el('span', { class: 't' }, item.title),
+      el('span', { class: 't-short', 'aria-hidden': 'true' }, item.short || item.title),
       item.where ? el('span', { class: 'where' }, item.where) : null,
       item.kbd ? el('span', { class: 'kbd' }, item.kbd) : null);
   }
@@ -860,6 +877,7 @@ function rowFor(item, idx, query) {
         }, state.tagColors[t] ? el('span', { class: 'tg-dot', style: `background:${state.tagColors[t]}` }) : '#', t)),
         ...highlight(sub, query))),
     item.secret ? el('span', { class: 'mark-i', title: 'Looks like a key or token: hidden and left out of search' }, icon('key')) : null,
+    item.risk ? el('span', { class: 'mark-i risk', title: item.risk, 'aria-label': item.risk, role: 'img' }, icon('alert')) : null,
     item.pinned ? el('span', { class: 'mark-i pinned', title: 'Pinned' }, icon('pin')) : null,
     item.row?.source === 'android' ? el('span', { class: 'mark-i', title: 'Saved from your phone' }, icon('phone')) : null,
     rowActions(item));
@@ -869,7 +887,7 @@ function rowFor(item, idx, query) {
 // people recognise a page faster than by its title; a note shows its own colour
 // as an edge; everything else keeps the dot of its type.
 function rowMark(item, T) {
-  if (item.kind === 'link') {
+  if (item.kind === 'link' || item.kind === 'vault') {
     const src = faviconFor(item.row.url);
     if (src) {
       const img = el('img', { class: 'fav', src, alt: '', loading: 'lazy' });
@@ -1255,6 +1273,7 @@ function drawDetail(item) {
     el('div', { class: 'd-body' }, ...detailBody(item)),
     el('footer', { class: 'd-foot' }, ...detailFoot(item))
   );
+  startOtp();
 }
 
 // A clip's title is its whole text, which belongs in the body underneath (it
@@ -1319,20 +1338,69 @@ function detailBody(item) {
       linkNote(item)
     ];
   }
-  // vault, unlocked
+  // vault, unlocked. Each value has its own Copy, as in other password
+  // managers; the password's strength and reuse sit under it.
+  const r = item.row;
+  const copyBtn = (what, text, secret) => el('button', { class: 'pw-show', title: `Copy ${what}`, 'aria-label': `Copy ${what}`,
+    onclick: () => (secret ? copySecret : copy)(text, `${what[0].toUpperCase()}${what.slice(1)} copied`) }, icon('copy'));
+  const st = r.password ? health.strength(r.password) : null;
+  const shared = (health.reused(state.vault).get(item.id) || [])
+    .map((id) => state.vault.find((v) => v.id === id)?.title).filter(Boolean);
+  const otp = health.parseOtp(r.otp);
+  // The values you copy sit together in one card, each label above its value
+  // and Copy beside it. The site is in the header already, so it is not
+  // repeated here.
+  const vf = (label, value, ...acts) => el('div', { class: 'vf' },
+    el('div', { class: 'vf-main' }, el('span', { class: 'k' }, label), value), ...acts);
+  const left = otp ? otp.period : 30;
   return [
-    el('div', { class: 'field' }, el('span', { class: 'k' }, 'Site'), el('span', { class: 'v' }, item.row.url || '—')),
-    el('div', { class: 'field' }, el('span', { class: 'k' }, 'Username'), el('span', { class: 'v' }, item.row.username || '—')),
-    // Show sits beside the password it shows, where people look for it, not
-    // in the bottom bar, which had more buttons than room.
-    el('div', { class: 'field' }, el('span', { class: 'k' }, 'Password'),
-      el('span', { class: 'v-pw' },
-        el('span', { class: 'v', id: 'vpw' }, '•'.repeat(Math.min(16, (item.row.password || '').length) || 8)),
+    el('div', { class: 'v-card' },
+      vf('Username', el('span', { class: 'vf-v' }, r.username || '—'), r.username ? copyBtn('username', r.username) : null),
+      // Show sits beside the password it shows, where people look for it.
+      vf('Password', el('span', { class: 'vf-v pw', id: 'vpw' }, '•'.repeat(Math.min(16, (r.password || '').length) || 8)),
         el('button', { class: 'pw-show', id: 'vpw-show', title: 'Show password', 'aria-label': 'Show password', 'aria-pressed': 'false',
-          onclick: () => revealPassword(item) }, icon('eye')))),
-    item.row.notes ? el('p', { class: 'wrap', style: 'margin-top:12px' }, item.row.notes) : null,
+          onclick: () => revealPassword(item) }, icon('eye')),
+        r.password ? copyBtn('password', r.password, true) : null),
+      st && !shared.length ? el('div', { class: 'pw-health' }, el('span', { class: 'pw-st ' + st.level }, st.label),
+        st.level === 'weak' ? el('span', {}, 'Easy to guess: Edit, then the dice makes a strong one.') : null) : null,
+      otp ? vf('2FA code', el('span', { class: 'vf-v otp', id: 'votp', 'data-otp': r.otp }, '······'),
+        // The seconds left, as a ring that empties; the number is for reading.
+        el('span', { class: 'otp-ring', id: 'votp-left', role: 'img', 'aria-label': 'Seconds until the code changes',
+          style: `--p:${left}` }, el('span', {}, '')),
+        el('button', { class: 'pw-show', title: 'Copy 2FA code', 'aria-label': 'Copy 2FA code',
+          onclick: safe(async () => copySecret((await health.otpCode(otp)).code, '2FA code copied')) }, icon('copy'))) : null),
+    // A reused password is the one problem here worth a whole card, with the fix on it.
+    shared.length ? el('div', { class: 'v-alert' }, icon('alert'),
+      el('div', { class: 'v-alert-t' },
+        el('b', {}, `Also used for ${shared.slice(0, 2).join(', ')}${shared.length > 2 ? ` and ${shared.length - 2} more` : ''}`),
+        el('span', {}, `A leak on one site opens the other${shared.length > 1 ? 's' : ''}.${st ? ` Strength: ${st.label}.` : ''}`)),
+      el('button', { class: 'v-alert-btn', onclick: () => openVaultEditor(item) }, 'Change')) : null,
+    r.notes ? el('div', { class: 'v-card v-notes' }, el('span', { class: 'k' }, 'Notes'), el('p', { class: 'wrap' }, r.notes)) : null,
     codesSection(item)
   ].filter(Boolean);
+}
+
+// The 2FA code on screen, kept current: redrawn every second while a login
+// with a setup key is open, stopped as soon as it is not.
+async function tickOtp() {
+  const e = document.getElementById('votp');
+  if (!e) { clearInterval(tickOtp._t); tickOtp._t = null; return; }
+  const key = health.parseOtp(e.dataset.otp);
+  if (!key) return;
+  const { code, left } = await health.otpCode(key);
+  e.textContent = code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+  const l = document.getElementById('votp-left');
+  if (l) {
+    l.style.setProperty('--p', String(left / key.period));
+    l.firstChild.textContent = String(left);
+    l.setAttribute('aria-label', `${left} seconds until the code changes`);
+    l.classList.toggle('soon', left <= 5);
+  }
+}
+function startOtp() {
+  if (!document.getElementById('votp')) return;
+  tickOtp();
+  if (!tickOtp._t) tickOtp._t = setInterval(tickOtp, 1000);
 }
 
 // ---------- Backup codes on a login ----------
@@ -1438,13 +1506,12 @@ function detailFoot(item) {
   return [
     canFill
       ? el('button', { class: 'primary', title: 'Fill this login into the page you are on (Enter)',
-          onclick: () => fillItem(item.row) }, icon('fill'), 'Fill')
+          onclick: () => fillItem(item.row) }, icon('fill'), el('span', { class: 'fill-l' }, `Fill on ${(state.tabHost || '').replace(/^www\./, '')}`))
       // Short labels with a copy icon, the full words in title and aria-label:
       // beside the list the bar had no room for "Copy password · Copy user".
       : el('button', { class: 'primary', title: 'Copy password', 'aria-label': 'Copy password',
           onclick: safe(() => copySecret(item.row.password || '', 'Password copied')) }, icon('copy'), 'Password'),
-    el('button', { class: 'ghost', title: 'Copy username', 'aria-label': 'Copy username',
-      onclick: safe(() => copy(item.row.username || '', 'Username copied')) }, icon('copy'), 'Username'),
+    // Username has its own Copy in the card above, so the bar keeps room for the site's name.
     el('button', { class: 'ghost', onclick: () => openVaultEditor(item) }, icon('edit'), 'Edit'),
     el('span', { class: 'spacer' }),
     el('button', { class: 'ghost', title: 'Lock the vault', 'aria-label': 'Lock the vault', onclick: safe(lockVault) }, icon('lock')),
@@ -1753,6 +1820,7 @@ const shortcutName = (s) => {
 
 async function drawShortcuts() {
   const list = await shortcuts.list();
+  state.shortcutCount = list.length;   // for the plan card in Settings
   const pane = $('#detail');
   // The list may have been picked from while storage was read.
   if (state.picked || state.editing || state.filter !== 'all') return;
@@ -1795,8 +1863,34 @@ async function drawShortcuts() {
       el('div', { class: 'qs-grid', role: 'list' }, ...list.map(tile), add),
       state.scForm ? shortcutForm(list)
         : el('button', { class: 'qs-manual', onclick: () => { if (shortcutsFull(list.length)) return; state.scForm = { i: -1, title: '', url: '' }; drawShortcuts(); } },
-          icon('edit'), 'Type an address')));
+          icon('edit'), 'Type an address'),
+      pinnedSection()));
   if (state.scForm) pane.querySelector(state.scForm.i < 0 ? '#qs-url' : '#qs-title')?.focus();
+}
+
+// Under the shortcuts, what you pinned: the clips and notes you reach for every
+// day, one click (or Copy) away, filling the space that used to sit empty.
+function pinnedSection() {
+  const pinned = state.items.filter((i) => i.pinned && i.kind !== 'vault').slice(0, 6);
+  if (!pinned.length) return null;
+  const open = (item) => {
+    const idx = state.rows.findIndex((r) => rowKey(r) === rowKey(item));
+    if (idx >= 0) clickRow(idx);
+  };
+  return el('section', { class: 'qs-pinned', 'aria-label': 'Pinned' },
+    el('div', { class: 'qs-pinned-head' }, el('h3', {}, 'Pinned'), el('span', {}, 'Kept here until you unpin')),
+    ...pinned.map((item) => {
+      const T = TYPES[item.kind];
+      const text = item.kind === 'clip' ? (item.secret ? detect.mask(item.row.content) : (item.lead || item.title)) : item.title;
+      return el('div', { class: 'qs-pin' },
+        el('button', { type: 'button', class: 'qs-pin-open', onclick: () => open(item) },
+          el('span', { class: 'bul', style: `background:${item.kind === 'note' ? colourVar(item.row) : T.color}` }),
+          el('span', { class: 't' + (item.mono ? ' mono' : '') }, text)),
+        item.kind === 'clip'
+          ? el('button', { type: 'button', class: 'qs-pin-copy', 'aria-label': 'Copy ' + text,
+              onclick: safe(() => (item.secret ? copySecret(item.row.content, 'Copied') : copy(item.row.content, 'Copied'))) }, 'Copy')
+          : item.progress ? el('span', { class: 'qs-pin-n' }, `${item.progress.done}/${item.progress.total}`) : null);
+    }));
 }
 
 function shortcutForm(list) {
@@ -2161,6 +2255,22 @@ function drawEditor() {
     'data-placeholder': 'Write, or start a list with [ ] or - …'
   });
   richEditor.make(body, state.draft.body);
+  // A link in the note opens with Ctrl+click (Cmd+click on a Mac), the way
+  // editors do it: a plain click has to stay free for putting the caret there.
+  body.addEventListener('click', (e) => {
+    const link = e.target.closest?.('.url[data-href]');
+    if (!link || !(e.ctrlKey || e.metaKey)) return;
+    const href = link.dataset.href;
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    chrome.tabs.create({ url: href, active: !e.shiftKey });
+  });
+  // Holding the key shows which words are links you can open.
+  const modKey = (e) => body.classList.toggle('mod', e.ctrlKey || e.metaKey);
+  body.addEventListener('keydown', modKey);
+  body.addEventListener('keyup', modKey);
+  body.addEventListener('mouseleave', () => body.classList.remove('mod'));
+  body.addEventListener('mousemove', (e) => { if ((e.ctrlKey || e.metaKey) !== body.classList.contains('mod')) modKey(e); });
   body.addEventListener('input', (e) => {
     if (e.isComposing) return;
     readBack(); queueSave(); refreshEditorBits(); updateTools();
@@ -3079,6 +3189,7 @@ function openVaultEditor(item, prefill = null) {
   state.vDraft = {
     title: row.title || '', url: row.url || '', username: row.username || '',
     password: row.password || '', notes: row.notes || '', tags: [...(row.tags || [])],
+    otp: row.otp || '', genMode: 'random', genLen: 20, genWords: 5, genSymbols: true,
     // Codes already saved stay as they are; a pasted block is read on Save.
     codes: (row.codes || []).map((x) => ({ ...x })), pasted: '', replaceCodes: true
   };
@@ -3125,7 +3236,46 @@ function drawVaultEditor() {
 
   const pw = el('input', { id: 'v-pass', type: 'password', value: d.password,
     autocomplete: 'new-password', spellcheck: 'false', placeholder: 'Password' });
-  pw.addEventListener('input', () => { d.password = pw.value; });
+  // Strength as you type or generate, worked out here and never sent anywhere.
+  const meter = el('div', { class: 'pw-health', id: 'v-meter', 'aria-live': 'polite' });
+  const rate = () => {
+    const st = d.password ? health.strength(d.password) : null;
+    meter.replaceChildren(...(st ? [el('span', { class: 'pw-st ' + st.level }, st.label)] : []));
+  };
+  rate();
+  const words = () => d.genMode === 'words';
+  const generate = () => {
+    pw.value = words() ? health.passphrase(PASSPHRASE_WORDS, d.genWords)
+      : vaultCrypto.generatePassword(d.genLen, { symbols: d.genSymbols });
+    d.password = pw.value; pw.type = 'text'; rate();
+  };
+  // Random characters, or words that are easier to type on a phone or read out.
+  // The slider is the length or the number of words; changing anything makes a new one.
+  const lenOut = el('span', { class: 'gen-n' });
+  const len = el('input', { type: 'range' });
+  const sym = el('input', { type: 'checkbox', id: 'v-gen-sym', checked: d.genSymbols || null });
+  const symLabel = el('label', { class: 'inline', for: 'v-gen-sym' }, sym, 'Symbols');
+  const lenLabel = el('span', { class: 'gen-l' });
+  const modeBtn = (m, text) => el('button', { type: 'button', class: 'gen-mode', 'data-mode': m, 'aria-pressed': String(d.genMode === m),
+    onclick: () => { d.genMode = m; setMode(); generate(); } }, text);
+  const modes = el('div', { class: 'gen-modes', role: 'group', 'aria-label': 'Kind of password' }, modeBtn('random', 'Random'), modeBtn('words', 'Words'));
+  const setMode = () => {
+    const w = words();
+    Object.assign(len, w ? { min: 3, max: 10, value: d.genWords } : { min: 8, max: 64, value: d.genLen });
+    len.setAttribute('aria-label', w ? 'Number of words' : 'Password length');
+    lenLabel.textContent = w ? 'Words' : 'Length';
+    lenOut.textContent = String(w ? d.genWords : d.genLen);
+    symLabel.hidden = w;
+    modes.querySelectorAll('.gen-mode').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === d.genMode)));
+  };
+  len.addEventListener('input', () => {
+    if (words()) d.genWords = +len.value; else d.genLen = +len.value;
+    lenOut.textContent = len.value; generate();
+  });
+  sym.addEventListener('change', () => { d.genSymbols = sym.checked; generate(); });
+  setMode();
+  const genOptions = el('div', { class: 'gen-opts' }, modes, lenLabel, len, lenOut, symLabel);
+  pw.addEventListener('input', () => { d.password = pw.value; rate(); });
   pw.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Escape') { e.preventDefault(); closeVaultEditor(); }
@@ -3138,10 +3288,13 @@ function drawVaultEditor() {
     // Everything the login already holds, then the form on top: a field the
     // form does not show (its backup codes, say) must not be lost by an edit.
     const { id: _id, updated_at: _u, ...kept } = item.row || {};
+    const otp = d.otp.trim();
+    if (otp && !health.parseOtp(otp)) { toast('That 2FA setup key could not be read'); $('#v-otp')?.focus(); return; }
     const payload = { ...kept, title: d.title.trim(), url: d.url.trim(), username: d.username,
-      password: d.password, notes: d.notes, tags: d.tags,
+      password: d.password, notes: d.notes, tags: d.tags, otp,
       codes: backupCodes.merge(d.codes, d.pasted, { replace: d.replaceCodes && d.codes.length > 0 }) };
     if (!payload.codes.length) delete payload.codes;
+    if (!payload.otp) delete payload.otp;
     // Adding codes to a login that had none counts against Free's limit.
     if (payload.codes && !item.row?.codes?.length && codeSetsFull(item.id)) return;
     const { iv, ciphertext } = await vaultCrypto.encrypt(state.vaultKey, JSON.stringify(payload));
@@ -3182,9 +3335,12 @@ function drawVaultEditor() {
           el('div', { class: 'grow' }, pw),
           el('button', { title: 'Show or hide', 'aria-label': 'Show or hide password',
             onclick: () => { pw.type = pw.type === 'password' ? 'text' : 'password'; } }, icon('eye')),
-          el('button', { title: 'Generate', 'aria-label': 'Generate a password',
-            onclick: () => { pw.value = vaultCrypto.generatePassword(); d.password = pw.value; pw.type = 'text'; } },
-            icon('dice')))),
+          el('button', { title: 'Generate', 'aria-label': 'Generate a password', onclick: generate },
+            icon('dice'))),
+        genOptions,
+        meter),
+      field('v-otp', '2FA setup key (optional)', d.otp, { key: 'otp',
+        placeholder: 'The key or otpauth:// link a site shows for an authenticator app' }),
       field('v-notes', 'Notes', d.notes, { key: 'notes', multiline: true }),
       codesField(d)),
     el('footer', { class: 'd-foot' },
@@ -3301,11 +3457,12 @@ function drawVaultGate({ focus = false } = {}) {
     'aria-label': 'Master password', autocomplete: 'off' });
   const p2 = setup ? el('input', { type: 'password', placeholder: 'Repeat master password', 'aria-label': 'Repeat master password', autocomplete: 'off' }) : null;
   const msg = el('p', { class: 'msg', role: 'alert' });
+  const pick = setup ? masterPicker(p1, p2) : null;
 
   const go = safe(async () => {
     if (setup) {
-      if (p1.value.length < 10) return (msg.textContent = 'Use at least 10 characters.');
-      if (p1.value !== p2.value) return (msg.textContent = "Passwords don't match.");
+      const err = pick.check();
+      if (err) return (msg.textContent = err);
       msg.textContent = 'Creating…';
       const made = await vaultKeys.create(p1.value);
       await saveVaultMeta(made.meta);
@@ -3348,6 +3505,7 @@ function drawVaultGate({ focus = false } = {}) {
         ? 'Pick a master password. It never leaves this device. Next you get a recovery key: the only way back in if you forget the password.'
         : 'Your master password unlocks every saved login for this session. It is not stored anywhere.'),
       p1, p2,
+      pick ? pick.meter : null, pick ? pick.suggest : null,
       el('button', { class: 'primary', onclick: go }, setup ? 'Create vault' : 'Unlock'),
       msg,
       setup ? null : el('button', { class: 'gate-link', onclick: safe(drawForgotMaster) }, 'Forgot master password?'))
@@ -3383,9 +3541,37 @@ const VAULT_CONFLICT_MSG = 'This device and your account have different vaults. 
 
 const pwField = (placeholder) => el('input', { type: 'password', placeholder, 'aria-label': placeholder.replace(/ \(.*\)$/, ''), autocomplete: 'off' });
 
+// Choosing a master password. The encryption is only as strong as this
+// password: whoever copies the encrypted vault can guess at it offline for as
+// long as they like. So its strength is shown as it is typed, a weak one is
+// refused, and a passphrase is one click away.
+function masterPicker(p1, p2) {
+  const meter = el('div', { class: 'pw-health master-meter', 'aria-live': 'polite' });
+  const rate = () => {
+    const st = p1.value ? health.strength(p1.value) : null;
+    meter.replaceChildren(...(st ? [el('span', { class: 'pw-st ' + st.level }, st.label),
+      st.level === 'weak' ? el('span', {}, 'Too easy to guess. Try four or more random words.') : null].filter(Boolean) : []));
+  };
+  p1.addEventListener('input', rate);
+  const suggest = el('button', { type: 'button', class: 'gate-link suggest', onclick: () => {
+    const phrase = health.passphrase(PASSPHRASE_WORDS, 5);
+    for (const f of [p1, p2]) { f.value = phrase; f.type = 'text'; }
+    rate();
+    p1.focus(); p1.select();
+    toast('Write this passphrase down, or keep it in your head: DeskSync cannot show it again');
+  } }, 'Suggest a passphrase');
+  const check = () => {
+    if (p1.value.length < 10) return 'Use at least 10 characters.';
+    if (health.strength(p1.value).level === 'weak') return 'That password is too easy to guess. Make it longer, or use Suggest a passphrase.';
+    if (p1.value !== p2.value) return "The passwords don't match.";
+    return null;
+  };
+  return { meter, suggest, check };
+}
+
 // A gate-style form. `onGo` returns an error to show, or nothing once it has
 // moved on.
-function vaultForm({ title, ic = 'shield', text, fields, button, danger = false, onGo, after = [] }) {
+function vaultForm({ title, ic = 'shield', text, fields, extra = [], button, danger = false, onGo, after = [] }) {
   state.vaultPanel = true;
   const msg = el('p', { class: 'msg', role: 'alert' });
   const go = safe(async () => {
@@ -3404,6 +3590,7 @@ function vaultForm({ title, ic = 'shield', text, fields, button, danger = false,
       el('h3', {}, title),
       el('p', {}, text),
       ...fields,
+      ...extra,
       el('button', { class: 'primary' + (danger ? ' danger' : ''), onclick: go }, button),
       msg,
       ...after,
@@ -3476,13 +3663,14 @@ function drawChangeMaster() {
   const cur = pwField('Current master password');
   const p1 = pwField('New master password (min 10)');
   const p2 = pwField('Repeat new master password');
+  const pick = masterPicker(p1, p2);
   vaultForm({
     title: 'Change master password', ic: 'lock',
     text: 'Your saved logins stay as they are. Other devices ask for the new password once they sync.',
-    fields: [cur, p1, p2], button: 'Change password',
+    fields: [cur, p1, p2], extra: [pick.meter, pick.suggest], button: 'Change password',
     onGo: async (msg) => {
-      if (p1.value.length < 10) return 'Use at least 10 characters.';
-      if (p1.value !== p2.value) return "The new passwords don't match.";
+      const err = pick.check();
+      if (err) return err;
       if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
       msg.textContent = 'Changing…';
       const meta = await store.vaultMeta();
@@ -3501,14 +3689,15 @@ async function drawForgotMaster() {
     autocomplete: 'off', spellcheck: 'false', class: 'rk-in' });
   const p1 = pwField('New master password (min 10)');
   const p2 = pwField('Repeat new master password');
+  const pick = masterPicker(p1, p2);
   vaultForm({
     title: 'Forgot master password', ic: 'key',
     text: 'Enter your recovery key and choose a new master password. Your saved logins stay as they are.',
-    fields: [rk, p1, p2], button: 'Open the vault',
+    fields: [rk, p1, p2], extra: [pick.meter, pick.suggest], button: 'Open the vault',
     onGo: async (msg) => {
       if (!rk.value.trim()) return 'Enter your recovery key.';
-      if (p1.value.length < 10) return 'Use at least 10 characters.';
-      if (p1.value !== p2.value) return "The new passwords don't match.";
+      const err = pick.check();
+      if (err) return err;
       if (await store.vaultConflict()) return VAULT_CONFLICT_MSG;
       msg.textContent = 'Checking…';
       const meta = await store.vaultMeta();
@@ -3573,10 +3762,19 @@ function fillItem(v) {
   // awaited before it. Filling a site is also what grants access to that site.
   chrome.permissions.request({ origins: [tabOrigin] }).then(async (granted) => {
     if (!granted) return toast('DeskSync needs access to this site to fill it');
+    // The current 2FA code goes along when the login has a setup key; the page
+    // only uses it on a step that asks for one.
+    const key = health.parseOtp(v.otp);
+    const otp = key ? (await health.otpCode(key)).code : '';
     const [res] = await chrome.scripting.executeScript({
-      target: { tabId }, func: fillForm, args: [v.username || '', v.password || '']
+      target: { tabId }, func: fillForm, args: [v.username || '', v.password || '', otp]
     });
     const r = res?.result;
+    if (r?.otp) {
+      toast('Filled the 2FA code');
+      if (VIEW === 'popup') setTimeout(() => window.close(), 700);
+      return;
+    }
     if (r?.usernameOnly) {
       toast('Username filled. Continue to the password page, then fill again');
       if (VIEW === 'popup') setTimeout(() => window.close(), 1200);
@@ -3596,7 +3794,8 @@ function setScreen(name) {
   $('#detail').hidden = on;
   $('#screen').hidden = !on;
   $$('.rail [data-screen]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.screen === name)));
-  if (on) { drawScreen(); $('#screen').focus(); if (name === 'trash') loadTrash(); }
+  // Opening a screen starts at its top; redraws while it is open keep the place.
+  if (on) { $('#screen').dataset.drawn = ''; drawScreen(); $('#screen').focus(); if (name === 'trash') loadTrash(); }
   else { draw(); $('#q').focus(); }
 }
 $$('.rail [data-screen]').forEach((b) =>
@@ -3691,6 +3890,9 @@ const SWATCHES = ['', '#3d7bfa', '#19bf7a', '#ffd84d', '#ff8a3d', '#e0557b', '#8
 
 function drawSettings() {
   const pane = $('#screen');
+  // A switch or the theme redraws the whole screen; without this it jumped back
+  // to the top every time, away from the setting just changed.
+  const keepY = pane.dataset.drawn === 'settings' ? (pane.querySelector('.sc-body')?.scrollTop || 0) : 0;
   const counts = {};
   for (const i of state.items) for (const t of i.tags) counts[t] = (counts[t] || 0) + 1;
   const tags = allTags();
@@ -3801,7 +4003,7 @@ function drawSettings() {
     el('header', { class: 'sc-head' }, backButton(), el('h2', {}, 'Settings')),
     el('div', { class: 'sc-body' },
       el('div', { class: 'sc-sec' }, 'Plan'),
-      ...planRows(row),
+      ...planRows(),
 
       el('div', { class: 'sc-sec' }, state.email ? 'Account' : FREE_BUILD ? 'Storage' : 'Sync'),
       ...accountRows,
@@ -3885,6 +4087,17 @@ function drawSettings() {
         : [el('div', { class: 'sc-row' }, el('span', { class: 'lab' }, el('span', {}, 'No tags yet. Add one from any item.')))]),
 
       el('div', { class: 'sc-sec' }, 'Everyday'),
+      // The same choice as the sun/moon in the rail, spelled out where people
+      // look for it. Two themes only: a third "follow the system" state was
+      // tried and dropped (see the theme tests).
+      row('Theme', 'Also the sun and moon at the bottom of the rail.',
+        el('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' },
+          ...THEMES.map((t) => el('button', { type: 'button', 'aria-pressed': String(state.theme === t.key),
+            onclick: safe(async () => {
+              applyTheme(t.key);
+              await chrome.storage.local.set({ theme: t.key });
+              drawSettings();
+            }) }, icon(t.icon), t.key === 'light' ? 'Light' : 'Dark')))),
       row('Unread count on the icon', 'How many Read later links you have not opened yet.',
         toggle('unreadBadge', 'Unread count on the icon')),
       row('Emails open in Gmail', 'A note that starts with To: has an Open in mail button. Off: your mail app. On: a Gmail compose window.',
@@ -3896,7 +4109,7 @@ function drawSettings() {
 
       el('div', { class: 'sc-sec' }, 'Keyboard'),
       row('Open DeskSync', null, el('span', { class: 'val' }, shortcut('_execute_action', 'Alt+Shift+D') || 'Not set')),
-      row('Fill a login', 'On a sign-in page; with several accounts for the site, choose one', el('span', { class: 'val' }, shortcut('fill-login', 'Alt+Shift+L') || 'Not set')),
+      row('Fill a login', 'On a sign-in page or its 2FA step; with several accounts for the site, choose one', el('span', { class: 'val' }, shortcut('fill-login', 'Alt+Shift+L') || 'Not set')),
       row('Save this tab', null, el('span', { class: 'val' }, shortcut('save-tab', 'Alt+Shift+S') || 'Not set')),
       row('New note', 'From any page', el('span', { class: 'val' }, shortcut('new-note', 'Alt+Shift+K') || 'Not set')),
       row('Save the clipboard', 'From any page', el('span', { class: 'val' }, shortcut('save-clipboard', '') || 'Not set: choose one below')),
@@ -3925,43 +4138,83 @@ function drawSettings() {
         ? row('Privacy policy', 'What DeskSync keeps, where, and what it never does.',
             el('button', { class: 'act', onclick: () => chrome.tabs.create({ url: DESKSYNC_CONFIG.PRIVACY_URL }) }, 'Read'))
         : null,
-      row('Version', null, el('span', { class: 'val' }, chrome.runtime?.getManifest?.().version || ''))
+      row('Version', null, el('span', { class: 'val' }, chrome.runtime?.getManifest?.().version || '')),
+      // The licence of the passphrase word list (CC BY) asks for this credit.
+      row('Credits', 'Passphrase words: the EFF short word list by the Electronic Frontier Foundation, CC BY 3.0 US.',
+        el('button', { class: 'act', onclick: () => chrome.tabs.create({ url: 'https://www.eff.org/dice' }) }, 'View'))
     )
   );
+  settingsNav(pane);
+  pane.dataset.drawn = 'settings';
+  if (keepY) pane.querySelector('.sc-body').scrollTop = keepY;
+}
+
+// A list of the sections beside Settings, so Vault or Keyboard is one click
+// away instead of a long scroll. It only jumps within the one page: every row
+// stays where search, the tests and muscle memory expect it. Hidden when the
+// screen is too narrow for it (the side panel), by a container query.
+function settingsNav(pane) {
+  const body = pane.querySelector('.sc-body');
+  if (!body) return;
+  const secs = [...body.querySelectorAll('div.sc-sec')];
+  const label = (sec) => sec.textContent.replace(/ ·.*$/, '');
+  const buttons = secs.map((sec) => el('button', { type: 'button',
+    onclick: () => body.scrollTo({ top: sec.offsetTop - body.offsetTop - 4, behavior: 'smooth' }) }, label(sec)));
+  const mark = () => {
+    const y = body.scrollTop + 24;
+    let on = 0;
+    secs.forEach((sec, i) => { if (sec.offsetTop - body.offsetTop <= y) on = i; });
+    // At the very bottom the last sections can never reach the top: mark the last.
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 2) on = secs.length - 1;
+    buttons.forEach((b, i) => b.setAttribute('aria-current', i === on ? 'true' : 'false'));
+  };
+  body.addEventListener('scroll', mark, { passive: true });
+  const main = el('div', { class: 'sc-main' },
+    el('nav', { class: 'sc-nav', 'aria-label': 'Settings sections' }, ...buttons), body);
+  pane.append(main);
+  mark();
 }
 
 // ---------- Plan ----------
 // What this plan includes, in Settings. Free is the whole app on one device;
 // Pro, coming soon, adds sync (PLANS in lib/client.js).
-function planRows(row) {
+// The plan as one card: what you are on and what it allows, with a bar for
+// each limit you can run into. It used to be nine rows of "No limit" at the
+// top of Settings, in the way of everything people open Settings for.
+function planRows() {
   const pro = state.plan === 'pro';
   const until = state.planUntil ? ` until ${new Date(state.planUntil).toLocaleDateString()}` : '';
   const about = configured('PRO_URL')
     ? el('button', { class: 'act', id: 'about-pro', onclick: () => chrome.tabs.create({ url: DESKSYNC_CONFIG.PRO_URL }) }, pro ? 'Details' : 'About Pro')
     : null;
-  const n = (v) => (Number.isFinite(v) ? String(v) : 'No limit');
   const templates = state.notes.filter((x) => (x.tags || []).includes(TEMPLATE_TAG)).length;
+  // A count we know (the vault only while unlocked, shortcuts once drawn), else just the limit.
+  const meter = (label, have, max) => {
+    const known = Number.isFinite(have);
+    const pct = known ? Math.min(100, Math.round((have / max) * 100)) : 0;
+    return el('div', { class: 'pl-meter' + (known && have >= max ? ' full' : '') },
+      el('div', { class: 'pl-top' }, el('span', {}, label), el('b', {}, known ? `${have} of ${max}` : `Up to ${max}`)),
+      el('span', { class: 'pl-bar', role: 'img', 'aria-label': known ? `${label}: ${have} of ${max}` : `${label}: up to ${max}` },
+        el('i', { style: `width:${pct}%` })));
+  };
+  const L = state.limits;
   return [
-    // Free never expires (plan.name in lib/client.js only ends Pro), and says so.
-    row(pro ? `Pro${until}` : 'Free — no time limit',
-      pro ? 'Sync across your computers and your phone, with no limits.'
-        : 'Every feature on this device for as long as you like. Pro, coming soon, adds sync across your computers and the Android app.',
-      about),
-    row('Captured clips kept', pro ? 'Every clip you copy is kept.'
-      : `The newest ${state.limits.clips} captured clips. Clips you save yourself and pinned clips are always kept.`,
-      el('span', { class: 'val' }, n(state.limits.clips))),
-    row('Notes', `${plural(state.notes.length, 'note')} saved.`,
-      el('span', { class: 'val' }, n(state.limits.notes))),
-    row('Logins', 'Usernames and passwords in the vault.',
-      el('span', { class: 'val' }, n(state.limits.logins))),
-    row('Logins with backup codes', 'Each login can hold a full set of codes.',
-      el('span', { class: 'val' }, n(state.limits.codeSets))),
-    row('Shortcuts', 'Sites on the Everything screen, one click away.',
-      el('span', { class: 'val' }, n(state.limits.shortcuts))),
-    row('Templates', `${plural(templates, 'template')} saved.`,
-      el('span', { class: 'val' }, n(state.limits.templates))),
-    row('Trash kept for', 'Then deleted for good.', el('span', { class: 'val' }, trashKept())),
-    row('Never limited', 'Read-later links, export, encryption and auto-lock.', null)
+    el('div', { class: 'pl-card' },
+      el('div', { class: 'pl-head' },
+        // Free never expires (plan.name in lib/client.js only ends Pro), and says so.
+        el('div', { class: 'pl-name' },
+          el('b', {}, pro ? `Pro${until}` : 'Free, no time limit'),
+          el('span', {}, pro ? 'Sync across your computers and your phone, with no limits.'
+            : 'Every feature on this device for as long as you like. Pro adds sync across your computers and the Android app.')),
+        about),
+      pro ? null : el('div', { class: 'pl-meters' },
+        meter('Notes', state.notes.length, L.notes),
+        meter('Logins', state.vaultState === 'open' ? state.vault.length : null, L.logins),
+        meter('Shortcuts', state.shortcutCount, L.shortcuts),
+        meter('Templates', templates, L.templates)),
+      el('p', { class: 'pl-foot' }, pro
+        ? `No limits on notes, logins, clips or shortcuts. Trash kept for ${trashKept()}.`
+        : `Free keeps backup codes on ${L.codeSets} logins, the newest ${L.clips} captured clips (saved and pinned clips always), trash kept for ${trashKept()}. Read-later links, export, encryption and auto-lock are never limited.`))
   ];
 }
 
@@ -4471,13 +4724,25 @@ $('#theme').addEventListener('click', safe(async () => {
 // decided the window size and can resolve against a viewport that does not exist
 // yet, which collapses the document and the popup never opens at all. Measuring
 // after layout is the only reliable way, so the size is applied here instead.
+//
+// While the popup opens, Chrome on macOS can report a small window for a
+// moment, before it has grown to fit the page. Shrinking to that locked the
+// popup at the small size: Chrome sizes the window to the page, so it never
+// grew again (a Mac user saw a 290x230 popup with the right column gone). The
+// cap at even 200% zoom is 400x300 CSS pixels, so anything smaller is a window
+// still opening and is ignored.
+const FIT_MIN_W = 400, FIT_MIN_H = 300;
 function fitToWindow() {
   // The side panel and a tab are sized by CSS: they have a real viewport.
   if (VIEW !== 'popup') return;
   const de = document.documentElement;
   const w = de.clientWidth, h = de.clientHeight;
-  if (w) document.body.style.width = Math.min(780, w) + 'px';
-  if (h) document.body.style.height = Math.min(560, h) + 'px';
+  if (w < FIT_MIN_W || h < FIT_MIN_H) {
+    document.body.style.width = ''; document.body.style.height = '';
+    return;
+  }
+  document.body.style.width = Math.min(780, w) + 'px';
+  document.body.style.height = Math.min(560, h) + 'px';
 }
 // Twice: removing the overflow gives the scrollbars' width back, which changes
 // clientWidth, so the second pass settles on the real figure.

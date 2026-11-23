@@ -69,8 +69,10 @@ const vaultCrypto = {
 
   async lock() { await chrome.storage.session.remove(['vaultKey', 'vaultLockAt']); },
 
-  generatePassword(length = 20) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+';
+  // Letters and digits without the look-alikes (0/O, 1/l/I); symbols optional,
+  // for the sites that refuse them.
+  generatePassword(length = 20, { symbols = true } = {}) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789' + (symbols ? '!@#$%^&*-_=+' : '');
     const out = [];
     const limit = 256 - (256 % chars.length);   // avoid modulo bias
     while (out.length < length) {

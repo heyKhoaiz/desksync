@@ -26,9 +26,20 @@ const richEditor = (() => {
   // ---------- drawing ----------
   // A line's words, with bold and italic as styled spans and the markers kept
   // but hidden.
+  // Web addresses are drawn as links (Ctrl or Cmd + click opens one; a plain
+  // click still puts the caret there, as in any editor). Only the drawing
+  // changes: the text, and so every offset, stays exactly what was typed.
+  const OPEN_HINT = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '') ? '⌘+click to open' : 'Ctrl+click to open';
+  const URL_RE = /\bhttps?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]'*_]/g;
+  function urlMarks(rest) {
+    const out = [];
+    for (const m of rest.matchAll(URL_RE)) out.push({ from: m.index, to: m.index + m[0].length, cls: 'url' });
+    return out;
+  }
+
   function inlineHtml(rest) {
     if (!rest) return '<br>';
-    const marks = fmt.inlineMarks(rest);
+    const marks = [...fmt.inlineMarks(rest), ...urlMarks(rest)];
     if (!marks.length) return esc(rest);
     const cuts = new Set([0, rest.length]);
     for (const m of marks) { cuts.add(m.from); cuts.add(m.to); }
@@ -39,7 +50,10 @@ const richEditor = (() => {
       const cls = marks.filter((m) => m.from <= a && m.to >= b).map((m) => m.cls);
       const chunk = esc(rest.slice(a, b));
       if (cls.includes('mk')) html += `<span class="mk" contenteditable="false">${chunk}</span>`;
-      else if (cls.length) html += `<span class="${cls.join(' ')}">${chunk}</span>`;
+      else if (cls.includes('url')) {
+        const href = marks.find((m) => m.cls === 'url' && m.from <= a && m.to >= b);
+        html += `<span class="${cls.join(' ')}" data-href="${esc(rest.slice(href.from, href.to))}" title="${OPEN_HINT}">${chunk}</span>`;
+      } else if (cls.length) html += `<span class="${cls.join(' ')}">${chunk}</span>`;
       else html += chunk;
     }
     return html;
