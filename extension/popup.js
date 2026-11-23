@@ -429,7 +429,8 @@ function buildItems() {
     items.push({
       kind: 'note', id: n.id, row: n, when: n.updated_at, pinned: n.pinned,
       title: n.title || text.slice(0, 60) || 'Untitled',
-      sub: (p.total ? `${p.done}/${p.total} done · ` : '') + text.slice(0, 90),
+      // The [x] and [ ] markers stay in the text for search, not in the preview.
+      sub: (p.total ? `${p.done}/${p.total} done · ` : '') + text.replace(/(^|\s)\[[ xX]\]\s*/g, '$1').slice(0, 90),
       text, openTasks: p.open, progress: p.total ? p : null, tags: n.tags || []
     });
   }
@@ -443,13 +444,18 @@ function buildItems() {
   // search, so it is not on screen whenever the popup opens next to someone.
   // Monospace is for code and commands only; an address or a sentence copied
   // from a page reads better in the normal face.
+  // Text over several lines lists like a note: the first line as the title,
+  // the rest as a preview under it.
   for (const c of state.clips) {
     const secret = detect.isSecret(c.content);
+    const mono = secret || detect.isCode(c.content);
+    const lines = mono ? [] : String(c.content || '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const preview = lines.length > 1 ? lines.slice(1).join(' ').slice(0, 90) : '';
     items.push({
       kind: 'clip', id: c.id, row: c, when: c.created_at, pinned: c.pinned,
-      secret, mono: secret || detect.isCode(c.content),
+      secret, mono, lead: lines.length > 1 ? lines[0] : null,
       title: secret ? detect.mask(c.content) : c.content, text: secret ? '' : c.content,
-      sub: c.source_url || '', tags: c.tags || []
+      sub: [preview, c.source_url].filter(Boolean).join(' · '), tags: c.tags || []
     });
   }
   // Vault titles are inside the ciphertext, so a locked vault has nothing to list.
@@ -635,14 +641,18 @@ function draw() {
 
   let last = null;
   const hasToday = state.filter === 'all' && state.rows.some((r) => r.kind !== 'action' && isToday(r));
+  const onHost = (item) => state.filter === 'vault' && state.tabHost && hostMatches(item.row?.url, state.tabHost);
+  const hasHost = state.rows.some((r) => r.kind === 'vault' && onHost(r));
   state.rows.forEach((item, idx) => {
+    // Under one type the list's header already names it, so the rows get no
+    // label repeating it; the vault only splits off the logins for this site.
     const group = item.kind === 'action' ? null
-      : text ? TYPES[item.kind].label
-      // Pinned things are kept at the top already; now the list says why.
+      : text && state.filter === 'all' ? TYPES[item.kind].label
       // Everything: Today first, then Earlier; Recent when nothing is for today.
-      : state.filter === 'all' ? (isToday(item) ? 'Today' : hasToday ? 'Earlier' : 'Recent')
-      : state.filter === 'vault' && state.tabHost && hostMatches(item.row?.url, state.tabHost) ? `On ${state.tabHost}`
-      : TYPES[item.kind].label;
+      : state.filter === 'all' && !text ? (isToday(item) ? 'Today' : hasToday ? 'Earlier' : 'Recent')
+      : onHost(item) ? `On ${state.tabHost}`
+      : hasHost ? 'Other logins'
+      : null;
     if (group && group !== last) { list.append(el('li', { class: 'g-head' }, group)); last = group; }
     list.append(rowFor(item, idx, text));
   });
@@ -772,12 +782,16 @@ function drawTagbar(text, tags) {
     tags.every((t) => i.tags.includes(t)) &&
     (!text || score(i, text) > 0));
 
-  bar.replaceChildren(...allTags().map((t) => {
-    const on = tags.includes(t);
-    const n = on ? pool.length : pool.filter((i) => i.tags.includes(t)).length;
+  // A tag with nothing left under the current type and search is left out
+  // rather than shown greyed: it can only lead to an empty list.
+  const chips = allTags().map((t) => ({ t, on: tags.includes(t) }))
+    .map((c) => ({ ...c, n: c.on ? pool.length : pool.filter((i) => i.tags.includes(c.t)).length }))
+    .filter((c) => c.on || c.n);
+  bar.hidden = !chips.length;
+  bar.replaceChildren(...chips.map(({ t, on, n }) => {
     const color = state.tagColors[t];
     return el('button', {
-      'data-tag': t, 'aria-pressed': String(on), disabled: !on && !n,
+      'data-tag': t, 'aria-pressed': String(on),
       onclick: () => toggleTag(t)
     },
       color ? el('span', { class: 'tg-dot', style: `background:${color}` }) : el('span', { class: 'hash' }, '#'),
@@ -833,7 +847,7 @@ function rowFor(item, idx, query) {
     }, icon('check')),
     rowMark(item, T),
     el('span', { class: 'body' },
-      el('span', { class: 't' + (item.mono ? ' mono' : '') }, ...highlight(item.title, query)),
+      el('span', { class: 't' + (item.mono ? ' mono' : '') }, ...highlight(item.lead || item.title, query)),
       el('span', { class: 'm' },
         // How far along a task list is, readable without opening it.
         item.progress ? el('span', {
@@ -1210,16 +1224,6 @@ const setFilter = safe(async (f) => {
 $$('.rail [data-f]').forEach((b) => b.addEventListener('click', () => setFilter(b.dataset.f)));
 
 // ---------- Detail pane ----------
-function band(kindKey, title, sub, plain) {
-  const T = TYPES[kindKey];
-  return el('header', { class: 'd-band' + (plain ? ' plain' : '') },
-    el('div', { class: 'd-kind' },
-      el('span', { class: 'bul', style: `background:${T ? T.color : 'var(--ink)'}` }),
-      T ? T.one : 'Action'),
-    el('h2', { class: 'd-title' }, title),
-    sub ? el('p', { class: 'd-sub' }, sub) : null);
-}
-
 function drawDetail(item) {
   const pane = $('#detail');
   // A redraw (a clip arriving, a sync) must not wipe a shortcut being typed.
@@ -1241,7 +1245,9 @@ function drawDetail(item) {
   const tint = item.kind === 'note'
     ? `background:${colourVar(item.row)};color:${colourFg(item.row)}` : null;
   pane.append(
-    el('header', { class: 'd-band', style: tint },
+    // Only a note's header is coloured, in the note's own colour. Clips, links and
+    // vault items keep a plain one, so colour on a header always means "a note".
+    el('header', { class: 'd-band' + (item.kind === 'note' ? '' : ' plain'), style: tint },
       el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: `background:${T.color}` }), T.one),
       el('h2', { class: 'd-title' + (item.mono ? ' mono' : '') }, detailTitle(item)),
       el('p', { class: 'd-sub' }, detailSub(item))),
@@ -1259,10 +1265,24 @@ function detailTitle(item) {
   return first.trim() || 'Empty clip';
 }
 
+// A plain-text clip's body, as paragraphs. The first line is already the
+// header, so it is not repeated when there is more under it. Copy and Insert
+// still use the clip exactly as it was copied.
+function clipParagraphs(content) {
+  const text = String(content || '').replace(/^\s*\n/, '');
+  const nl = text.indexOf('\n');
+  const rest = nl < 0 ? '' : text.slice(nl + 1);
+  const body = rest.trim() ? rest : text;
+  return body.split(/\n[ \t]*\n+/).map((p) => p.split('\n').map((l) => l.trim()).join('\n').trim()).filter(Boolean);
+}
+
 function detailSub(item) {
   const when = item.when ? ago(item.when) : '';
   if (item.kind === 'link') return [hostOf(item.row.url), item.row.is_read ? 'read' : null, when].filter(Boolean).join(' · ');
-  if (item.kind === 'clip') return [item.row.source_url, when].filter(Boolean).join(' · ');
+  if (item.kind === 'clip') {
+    const words = item.mono ? 0 : (String(item.row.content || '').match(/\S+/g) || []).length;
+    return [item.row.source_url, words > 12 ? `${words} words` : null, when].filter(Boolean).join(' · ');
+  }
   if (item.kind === 'vault') return item.row.url || '';
   return when;
 }
@@ -1284,13 +1304,18 @@ function detailBody(item) {
           'This looks like a key or token, so it is hidden here and left out of search. Copy and Insert still use the real value. Clipboard history is not encrypted: the vault is the safer place for it.')
       ];
     }
-    return [el(item.mono ? 'pre' : 'div', { class: item.mono ? 'wrap v code' : 'wrap v' }, item.row.content)];
+    if (item.mono) return [el('pre', { class: 'wrap v code' }, item.row.content)];
+    const paras = clipParagraphs(item.row.content);
+    // A short one-liner is all in the header already; a long one is cut there
+    // at three lines, so the body keeps the whole of it.
+    if (paras.length === 1 && !paras[0].includes('\n') && paras[0] === detailTitle(item) && paras[0].length <= 100) return [];
+    return [el('div', { class: 'prose' }, ...paras.map((t) => el('p', {}, t)))];
   }
   if (item.kind === 'link') {
     return [
       el('div', { class: 'field' }, el('span', { class: 'k' }, 'Link'), el('span', { class: 'v' }, item.row.url)),
       el('div', { class: 'field' }, el('span', { class: 'k' }, 'Saved'),
-        el('span', { class: 'v' }, item.row.source === 'android' ? 'from your phone' : 'from a browser')),
+        el('span', { class: 'v txt' }, item.row.source === 'android' ? 'from your phone' : 'from a browser')),
       linkNote(item)
     ];
   }
@@ -1757,12 +1782,11 @@ async function drawShortcuts() {
       drawShortcuts();
     }) },
     el('span', { class: 'qs-ic' }, icon('plus')),
-    el('span', { class: 'qs-name' }, full ? 'Limit reached'
+    el('span', { class: 'qs-name' }, full ? `${list.length} of ${state.limits.shortcuts}`
       : here && !haveHere ? state.tabHost.replace(/^www\./, '') : 'This site'));
 
   pane.append(
     el('header', { class: 'd-band plain qs-head', 'data-shortcuts': '' },
-      el('div', { class: 'd-kind' }, 'Shortcuts'),
       el('h2', { class: 'd-title' }, 'Your sites'),
       el('p', { class: 'd-sub' }, (list.length ? 'One click to open. + adds the page you are on.'
         : 'Sites you open every day, one click away. + adds the page you are on.') +
@@ -1846,13 +1870,25 @@ async function clipToNote(item) {
   toast('Saved as note'); loadNotes();
 }
 async function remove(item) {
+  // The note open in the editor is closed first, or its next autosave would write it back.
+  if (item.kind === 'note' && state.editing?.id === item.id) await closeEditor({ redraw: false });
+  const reload = () => ({ note: loadNotes, link: loadLater, clip: loadClips, vault: loadVault })[item.kind]();
   // Clips have their text blanked on delete, so a copied password can't linger in the trash.
   if (item.kind === 'clip') await db.remove('clips', item.id, { content: '', source_url: null });
   else await db.remove(TYPES[item.kind].table, item.id);
-  toast('Deleted');
+  // The rest wait in the trash, so a slip can be taken back from the toast too.
+  if (item.kind === 'clip') toast('Clip deleted for good');
+  else {
+    toast('Moved to trash', { label: 'Undo', run: async () => {
+      await db.restore(TYPES[item.kind].table, item.id);
+      await reload();
+      loadTrash();
+      toast('Restored');
+    } });
+  }
   // The selection moves to the row that takes the deleted one's place.
   if (state.activeKey === rowKey(item)) state.activeKey = null;
-  ({ note: loadNotes, link: loadLater, clip: loadClips, vault: loadVault })[item.kind]();
+  reload();
   // Trash and its count in Settings were only read once, when the popup opened.
   loadTrash();
 }
@@ -3124,7 +3160,7 @@ function drawVaultEditor() {
   });
 
   pane.append(
-    el('header', { class: 'd-band' },
+    el('header', { class: 'd-band plain' },
       el('div', { class: 'd-kind' }, el('span', { class: 'bul', style: 'background:var(--vault)' }),
         state.vEditing.isNew ? 'Vault · new login' : 'Vault · editing'),
       (() => {
@@ -3643,7 +3679,7 @@ function drawTrash() {
             el('button', { onclick: safe(async () => { await db.purge(r._table, r.id); toast('Deleted forever'); loadTrash(); }) },
               'Delete forever'));
         })
-      : [el('div', { class: 'sc-empty' }, `Trash is empty. Anything you delete waits here for ${trashKept()}.`)]))
+      : [el('div', { class: 'sc-empty' }, `Trash is empty. Notes, links and vault items you delete wait here for ${trashKept()}. Clips are deleted for good.`)]))
   );
 }
 
@@ -3871,7 +3907,7 @@ function drawSettings() {
       }, 'Open')),
 
       el('div', { class: 'sc-sec' }, 'Data'),
-      row('Trash', `Deleted items wait here for ${trashKept()}, or until you empty it.`,
+      row('Trash', `Deleted notes, links and vault items wait here for ${trashKept()}, or until you empty it. Clips are deleted for good.`,
         el('button', { class: 'act', onclick: () => setScreen('trash') }, plural(state.trash.length, 'item'))),
       row('Export everything', 'One JSON file. Vault items stay encrypted in it.',
         el('button', { class: 'act', onclick: safe(exportAll) }, 'Export')),
